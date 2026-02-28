@@ -85,6 +85,26 @@ export function activate(context: vscode.ExtensionContext) {
     await execFileAsync("git", ["clean", "-fd"], { cwd });
   }
 
+  async function pushToRemote(cwd: string) {
+    try {
+      await vscode.window.withProgress(
+        {
+          location: vscode.ProgressLocation.Notification,
+          title: "Pushing to Remote...",
+          cancellable: false,
+        },
+        async () => {
+          await execFileAsync("git", ["push"], { cwd });
+        },
+      );
+      vscode.window.showInformationMessage("Successfully pushed to remote!");
+    } catch (error: any) {
+      vscode.window.showErrorMessage(
+        "Push failed: " + (error.stderr || error.message),
+      );
+    }
+  }
+
   async function executeGitCommit(
     commitMessage: string,
     authorDate: string,
@@ -187,6 +207,10 @@ export function activate(context: vscode.ExtensionContext) {
               data.committerDate,
               root,
             );
+            this._refreshAll();
+            break;
+          case "push":
+            await pushToRemote(root);
             this._refreshAll();
             break;
           case "stage":
@@ -359,6 +383,10 @@ export function activate(context: vscode.ExtensionContext) {
             .history-item:last-child { border: none; }
             .history-item code { color: var(--accent); font-weight: bold; }
             .empty-msg { font-size: 11px; opacity: 0.4; font-style: italic; text-align: center; padding: 8px 0; }
+
+            .push-section { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
+            .btn-push { background: transparent; border: 1px solid var(--accent); color: var(--accent); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; display: flex; align-items: center; gap: 4px; transition: 0.2s; }
+            .btn-push:hover { background: var(--accent); color: white; }
           </style>
         </head>
         <body>
@@ -409,10 +437,18 @@ export function activate(context: vscode.ExtensionContext) {
             </div>
           </div>
 
-          <button class="btn-primary" onclick="doCommit()">Backdate Commit</button>
+          <div style="display: flex; gap: 8px;">
+            <button class="btn-primary" style="flex: 2;" onclick="doCommit()">Backdate Commit</button>
+            <button class="btn-push" title="Push to Remote" onclick="pushToRemote()">
+              <span class="codicon codicon-cloud-upload"></span> Push
+            </button>
+          </div>
 
           <div class="card" style="margin-top:20px;">
-            <h3>Recent History</h3>
+            <div class="section-header">
+              <h3>Recent History</h3>
+              <span class="icon-btn codicon codicon-refresh" title="Refresh Status" onclick="refreshStatus()"></span>
+            </div>
             <div id="historyList">Loading history...</div>
           </div>
 
@@ -445,6 +481,8 @@ export function activate(context: vscode.ExtensionContext) {
             function unstageAll() { vscode.postMessage({ type: 'unstageAll' }); }
             function discardAll() { vscode.postMessage({ type: 'discardAll' }); }
             function openFile(file) { vscode.postMessage({ type: 'openFile', file }); }
+            function pushToRemote() { vscode.postMessage({ type: 'push' }); }
+            function refreshStatus() { vscode.postMessage({ type: 'refresh' }); }
 
             function doCommit() {
               const msg = document.getElementById('msg').value;
