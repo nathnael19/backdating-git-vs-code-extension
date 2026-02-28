@@ -3,14 +3,28 @@
   "displayName": "Backdating Git",
   "icon": "icon.png",
   "description": "Create Git commits with custom backdated timestamps.",
-  "version": "1.0.0",
+  "version": "1.0.2",
   "publisher": "nathnael19",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/nathnael19/backdating-git-vs-code-extension.git"
+  },
   "license": "MIT",
   "engines": {
     "vscode": "^1.80.0"
   },
   "categories": [
+    "SCM Providers",
     "Other"
+  ],
+  "keywords": [
+    "git",
+    "commit",
+    "backdate",
+    "history",
+    "timestamp",
+    "sidebar",
+    "gui"
   ],
   "activationEvents": [
     "onView:backdating-git.sidebar"
