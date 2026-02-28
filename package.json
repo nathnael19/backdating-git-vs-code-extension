@@ -7,10 +7,8 @@
   "engines": {
     "vscode": "^1.80.0"
   },
-  "categories": [
-    "Other"
-  ],
-  "activationEvents": [],
+  "categories": ["Other"],
+  "activationEvents": ["onView:backdating-git.sidebar"],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -38,6 +36,9 @@
       ]
     }
   },
+  "dependencies": {
+    "@vscode/codicons": "^0.0.35"
+  },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
@@ -46,8 +47,11 @@
     "lint": "eslint src --ext ts"
   },
   "devDependencies": {
-    "@types/vscode": "^1.80.0",
     "@types/node": "^18.x",
+    "@types/vscode": "^1.80.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "eslint": "^8.0.0",
     "typescript": "^5.0.0"
   }
 }

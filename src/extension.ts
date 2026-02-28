@@ -245,7 +245,7 @@ export function activate(context: vscode.ExtensionContext) {
             await unstageFile(root!, data.file);
             this._refreshAll();
             break;
-          case "discard":
+          case "discard": {
             const confirm = await vscode.window.showWarningMessage(
               `Are you sure you want to discard changes in ${data.file}?`,
               { modal: true },
@@ -256,6 +256,7 @@ export function activate(context: vscode.ExtensionContext) {
               this._refreshAll();
             }
             break;
+          }
           case "stageAll":
             await stageAll(root!);
             this._refreshAll();
@@ -264,7 +265,7 @@ export function activate(context: vscode.ExtensionContext) {
             await unstageAll(root!);
             this._refreshAll();
             break;
-          case "discardAll":
+          case "discardAll": {
             const confirmAll = await vscode.window.showWarningMessage(
               "Are you sure you want to discard ALL changes?",
               { modal: true },
@@ -275,7 +276,8 @@ export function activate(context: vscode.ExtensionContext) {
               this._refreshAll();
             }
             break;
-          case "openFile":
+          }
+          case "openFile": {
             const fullPath = path.isAbsolute(data.file)
               ? data.file
               : path.join(root!, data.file);
@@ -284,10 +286,12 @@ export function activate(context: vscode.ExtensionContext) {
             );
             await vscode.window.showTextDocument(doc);
             break;
-          case "refresh":
+          }
+          case "refresh": {
             log("Manual refresh requested");
             this._refreshAll();
             break;
+          }
         }
       });
 
@@ -607,17 +611,17 @@ export function activate(context: vscode.ExtensionContext) {
               let discardBtn = '';
 
               if (isStaged) {
-                actionBtn = '<span class="icon-btn codicon codicon-remove" title="Unstage" onclick="event.stopPropagation(); unstage(\'' + s.path + '\')"></span>';
+                actionBtn = '<span class="icon-btn codicon codicon-remove" title="Unstage" onclick="event.stopPropagation(); unstage(\\'' + s.path + '\\')"></span>';
               } else {
-                actionBtn = '<span class="icon-btn codicon codicon-add" title="Stage" onclick="event.stopPropagation(); stage(\'' + s.path + '\')"></span>';
-                discardBtn = '<span class="icon-btn codicon codicon-discard" title="Discard Changes" onclick="event.stopPropagation(); discard(\'' + s.path + '\', \'' + (s.staged === '?' ? '??' : s.unstaged) + '\')"></span>';
+                actionBtn = '<span class="icon-btn codicon codicon-add" title="Stage" onclick="event.stopPropagation(); stage(\\'' + s.path + '\\')"></span>';
+                discardBtn = '<span class="icon-btn codicon codicon-discard" title="Discard Changes" onclick="event.stopPropagation(); discard(\\'' + s.path + '\\', \\'' + (s.staged === '?' ? '??' : s.unstaged) + '\\')"></span>';
               }
 
-              return '<div class="file-item" onclick="openFile(\'' + s.path + '\')">' +
+              return '<div class="file-item" onclick="openFile(\\'' + s.path + '\\')">' +
                   '<span class="status-badge ' + statusClass + '">' + (statusChar === '?' ? 'U' : statusChar) + '</span>' +
                   '<span class="file-path">' + s.path + '</span>' +
                   '<div class="file-actions">' +
-                    '<span class="icon-btn codicon codicon-go-to-file" title="Open File" onclick="event.stopPropagation(); openFile(\'' + s.path + '\')"></span>' +
+                    '<span class="icon-btn codicon codicon-go-to-file" title="Open File" onclick="event.stopPropagation(); openFile(\\'' + s.path + '\\')"></span>' +
                     discardBtn +
                     actionBtn +
                   '</div>' +
