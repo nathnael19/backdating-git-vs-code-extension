@@ -3,6 +3,7 @@
   "displayName": "Backdating Git",
   "description": "Create Git commits with custom backdated timestamps.",
   "version": "1.0.0",
+  "license": "MIT",
   "engines": {
     "vscode": "^1.80.0"
   },
