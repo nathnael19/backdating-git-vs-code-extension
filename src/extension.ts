@@ -28,8 +28,35 @@ export function activate(context: vscode.ExtensionContext) {
       );
       return stdout.split("\n").filter((line) => line.trim() !== "");
     } catch {
-      return ["No commits found or not a git repo"];
+      return ["No commits found"];
     }
+  }
+
+  async function getGitStatus(
+    cwd: string,
+  ): Promise<{ path: string; status: string }[]> {
+    try {
+      const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
+        cwd,
+      });
+      return stdout
+        .split("\n")
+        .filter((line) => line.trim() !== "")
+        .map((line) => ({
+          status: line.slice(0, 2).trim(),
+          path: line.slice(3).trim(),
+        }));
+    } catch {
+      return [];
+    }
+  }
+
+  async function stageFile(cwd: string, filePath: string) {
+    await execFileAsync("git", ["add", filePath], { cwd });
+  }
+
+  async function stageAll(cwd: string) {
+    await execFileAsync("git", ["add", "."], { cwd });
   }
 
   // --- 2. Advanced Git Execution Logic ---
@@ -96,15 +123,14 @@ export function activate(context: vscode.ExtensionContext) {
           cancellable: false,
         },
         async (progress) => {
-          progress.report({ message: "Staging files..." });
-          await execFileAsync("git", ["add", "."], { cwd: root });
-
           progress.report({ message: "Committing..." });
           const env = {
             ...process.env,
             GIT_AUTHOR_DATE: authorDate,
             GIT_COMMITTER_DATE: committerDate,
           };
+          // Note: In this version, we assume user might have staged files manually or via UI.
+          // If nothing is staged, git commit will fail, which we handle.
           await execFileAsync("git", ["commit", "-m", commitMessage], {
             cwd: root,
             env,
@@ -116,7 +142,7 @@ export function activate(context: vscode.ExtensionContext) {
     } catch (error: any) {
       const msg =
         error.stdout && error.stdout.includes("nothing to commit")
-          ? "Nothing to commit. Working tree clean."
+          ? "Nothing to commit. Have you staged your changes?"
           : error.message || "Unknown Git error";
       vscode.window.showErrorMessage(msg);
     }
@@ -159,65 +185,63 @@ export function activate(context: vscode.ExtensionContext) {
       );
 
       webviewView.webview.onDidReceiveMessage(async (data) => {
+        const root = await this._getRepoRootForSelection();
+        if (!root) return;
+
         switch (data.type) {
           case "commit":
             await executeGitCommit(
               data.message,
               data.authorDate,
               data.committerDate,
+              root,
             );
-            this._updateHistory(); // Refresh history after commit
+            this._refreshAll();
+            break;
+          case "stage":
+            await stageFile(root, data.file);
+            this._refreshAll();
+            break;
+          case "stageAll":
+            await stageAll(root);
+            this._refreshAll();
             break;
           case "refresh":
-            this._updateHistory();
+            this._refreshAll();
             break;
         }
       });
 
-      this._updateHistory(); // Initial load
-      // Set up a periodic refresh for the history
-      setInterval(() => this._updateHistory(), 30000); // Refresh every 30 seconds
+      this._refreshAll();
+      setInterval(() => this._refreshAll(), 10000);
     }
 
-    private async _updateHistory() {
-      if (!this._view) return;
+    private async _getRepoRootForSelection(): Promise<string | undefined> {
       const workspaceFolders = vscode.workspace.workspaceFolders;
-      if (workspaceFolders && workspaceFolders.length > 0) {
-        // Try to find the root of the current active file's repo, or the first workspace folder's repo
-        let cwdForHistory: string | undefined;
-        const activeEditor = vscode.window.activeTextEditor;
-        if (activeEditor) {
-          const documentUri = activeEditor.document.uri;
-          const workspaceFolderForDocument =
-            vscode.workspace.getWorkspaceFolder(documentUri);
-          if (workspaceFolderForDocument) {
-            cwdForHistory = await getRepoRoot(
-              workspaceFolderForDocument.uri.fsPath,
-            );
-          } else {
-            cwdForHistory = await getRepoRoot(
-              vscode.Uri.joinPath(documentUri, "..").fsPath,
-            );
-          }
-        }
-        if (!cwdForHistory) {
-          cwdForHistory = await getRepoRoot(workspaceFolders[0].uri.fsPath);
-        }
+      if (!workspaceFolders || workspaceFolders.length === 0) return undefined;
 
-        if (cwdForHistory) {
-          const history = await getRecentCommits(cwdForHistory);
-          this._view.webview.postMessage({ type: "history", data: history });
-        } else {
-          this._view.webview.postMessage({
-            type: "history",
-            data: ["No Git repository found in workspace."],
-          });
-        }
-      } else {
-        this._view.webview.postMessage({
-          type: "history",
-          data: ["No workspace folders open."],
-        });
+      let cwd: string | undefined;
+      const activeEditor = vscode.window.activeTextEditor;
+      if (activeEditor) {
+        const documentUri = activeEditor.document.uri;
+        const workspaceFolderForDocument =
+          vscode.workspace.getWorkspaceFolder(documentUri);
+        cwd = workspaceFolderForDocument
+          ? workspaceFolderForDocument.uri.fsPath
+          : vscode.Uri.joinPath(documentUri, "..").fsPath;
+      }
+      if (!cwd) cwd = workspaceFolders[0].uri.fsPath;
+
+      return await getRepoRoot(cwd);
+    }
+
+    private async _refreshAll() {
+      if (!this._view) return;
+      const root = await this._getRepoRootForSelection();
+      if (root) {
+        const history = await getRecentCommits(root);
+        const status = await getGitStatus(root);
+        this._view.webview.postMessage({ type: "update", history, status });
       }
     }
 
@@ -232,8 +256,6 @@ export function activate(context: vscode.ExtensionContext) {
         <html lang="en">
         <head>
           <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>Backdating Git</title>
           <style>
             :root {
               --bg: var(--vscode-sideBar-background);
@@ -246,7 +268,8 @@ export function activate(context: vscode.ExtensionContext) {
             }
             body { font-family: var(--vscode-font-family); color: var(--fg); padding: 12px; font-size: 13px; line-height: 1.4; }
             .card { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 16px; backdrop-filter: blur(5px); }
-            h3 { margin-top: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7; margin-bottom: 8px; }
+            .header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+            h3 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7; }
             textarea, input { 
               width: 100%; box-sizing: border-box; background: var(--input-bg); color: var(--vscode-input-foreground); 
               border: 1px solid var(--vscode-input-border); border-radius: 4px; padding: 8px; font-family: inherit; margin-bottom: 8px;
@@ -272,12 +295,30 @@ export function activate(context: vscode.ExtensionContext) {
               border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; 
             }
             .btn-primary:hover { background: var(--btn-hover); transform: translateY(-1px); }
+            
+            .file-item { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; font-size: 11px; opacity: 0.9; }
+            .file-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 8px; }
+            .stage-btn { 
+              cursor: pointer; background: transparent; border: none; color: var(--fg); opacity: 0.5; font-size: 16px; font-weight: bold;
+              padding: 0 4px; border-radius: 4px; display: flex; align-items: center;
+            }
+            .stage-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+            
             .history-item { font-size: 11px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); opacity: 0.8; }
             .history-item:last-child { border: none; }
             .history-item code { color: var(--accent); font-weight: bold; }
+            .empty-msg { font-size: 11px; opacity: 0.5; font-style: italic; text-align: center; padding: 10px 0; }
           </style>
         </head>
         <body>
+          <div class="card">
+            <div class="header-row">
+              <h3>Changes</h3>
+              <button class="stage-btn" title="Stage All" onclick="stageAll()">+</button>
+            </div>
+            <div id="statusList">Loading changes...</div>
+          </div>
+
           <div class="card">
             <h3>Commit Message</h3>
             <textarea id="msg" placeholder="What did you change?"></textarea>
@@ -332,6 +373,14 @@ export function activate(context: vscode.ExtensionContext) {
               document.getElementById('committerDate').value = formatted;
             }
 
+            function stageFile(file) {
+              vscode.postMessage({ type: 'stage', file: file });
+            }
+
+            function stageAll() {
+              vscode.postMessage({ type: 'stageAll' });
+            }
+
             function doCommit() {
               const msg = document.getElementById('msg').value;
               const authorDate = document.getElementById('authorDate').value.replace('T', ' ') + ':00';
@@ -350,13 +399,24 @@ export function activate(context: vscode.ExtensionContext) {
             }
 
             window.addEventListener('message', event => {
-              const { type, data } = event.data;
-              if (type === 'history') {
-                const list = document.getElementById('historyList');
-                list.innerHTML = data.map(h => {
+              const { type, history, status } = event.data;
+              
+              if (type === 'update') {
+                // Update History
+                const histList = document.getElementById('historyList');
+                histList.innerHTML = history.length > 0 ? history.map(h => {
                   const parts = h.split(' - ');
                   return \`<div class="history-item"><code>\${parts[0]}</code> - \${parts.slice(1).join(' - ')}</div>\`;
-                }).join('');
+                }).join('') : '<div class="empty-msg">No recent commits</div>';
+
+                // Update Status
+                const statList = document.getElementById('statusList');
+                statList.innerHTML = status.length > 0 ? status.map(s => \`
+                  <div class="file-item">
+                    <span class="file-path" title="\${s.path}">[\${s.status}] \${s.path}</span>
+                    <button class="stage-btn" onclick="stageFile('\${s.path}')">+</button>
+                  </div>
+                \`).join('') : '<div class="empty-msg">No changes to stage</div>';
               }
             });
           </script>
