@@ -1,6 +1,7 @@
 import * as vscode from "vscode";
 import { execFile } from "child_process";
 import { promisify } from "util";
+import * as path from "path";
 
 const execFileAsync = promisify(execFile);
 
@@ -34,7 +35,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   async function getGitStatus(
     cwd: string,
-  ): Promise<{ path: string; status: string }[]> {
+  ): Promise<{ path: string; staged: string; unstaged: string }[]> {
     try {
       const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
         cwd,
@@ -43,7 +44,8 @@ export function activate(context: vscode.ExtensionContext) {
         .split("\n")
         .filter((line) => line.trim() !== "")
         .map((line) => ({
-          status: line.slice(0, 2).trim(),
+          staged: line.slice(0, 1).trim() || " ",
+          unstaged: line.slice(1, 2).trim() || " ",
           path: line.slice(3).trim(),
         }));
     } catch {
@@ -55,11 +57,34 @@ export function activate(context: vscode.ExtensionContext) {
     await execFileAsync("git", ["add", filePath], { cwd });
   }
 
+  async function unstageFile(cwd: string, filePath: string) {
+    await execFileAsync("git", ["reset", "HEAD", "--", filePath], { cwd });
+  }
+
+  async function discardChange(cwd: string, filePath: string, status: string) {
+    if (status === "??") {
+      const fullPath = path.isAbsolute(filePath)
+        ? filePath
+        : path.join(cwd, filePath);
+      await vscode.workspace.fs.delete(vscode.Uri.file(fullPath));
+    } else {
+      await execFileAsync("git", ["checkout", "--", filePath], { cwd });
+    }
+  }
+
   async function stageAll(cwd: string) {
     await execFileAsync("git", ["add", "."], { cwd });
   }
 
-  // --- 2. Advanced Git Execution Logic ---
+  async function unstageAll(cwd: string) {
+    await execFileAsync("git", ["reset"], { cwd });
+  }
+
+  async function discardAll(cwd: string) {
+    await execFileAsync("git", ["checkout", "."], { cwd });
+    await execFileAsync("git", ["clean", "-fd"], { cwd });
+  }
+
   async function executeGitCommit(
     commitMessage: string,
     authorDate: string,
@@ -77,34 +102,6 @@ export function activate(context: vscode.ExtensionContext) {
           cwd = workspaceFolderForDocument
             ? workspaceFolderForDocument.uri.fsPath
             : vscode.Uri.joinPath(documentUri, "..").fsPath;
-        }
-      }
-
-      if (!cwd) {
-        const workspaceFolders = vscode.workspace.workspaceFolders;
-        if (workspaceFolders && workspaceFolders.length > 0) {
-          const gitPaths = await vscode.workspace.findFiles(
-            "**/.git/config",
-            "**/node_modules/**",
-          );
-          const repoRoots = Array.from(
-            new Set(
-              gitPaths.map((p) => vscode.Uri.joinPath(p, "..", "..").fsPath),
-            ),
-          );
-
-          if (repoRoots.length === 1) cwd = repoRoots[0];
-          else if (repoRoots.length > 1) {
-            const selected = await vscode.window.showQuickPick(
-              repoRoots.map((r) => ({
-                label: vscode.workspace.asRelativePath(r),
-                targetPath: r,
-              })),
-              { placeHolder: "Select repository:" },
-            );
-            if (selected) cwd = selected.targetPath;
-            else return;
-          } else cwd = workspaceFolders[0].uri.fsPath;
         }
       }
 
@@ -129,8 +126,6 @@ export function activate(context: vscode.ExtensionContext) {
             GIT_AUTHOR_DATE: authorDate,
             GIT_COMMITTER_DATE: committerDate,
           };
-          // Note: In this version, we assume user might have staged files manually or via UI.
-          // If nothing is staged, git commit will fail, which we handle.
           await execFileAsync("git", ["commit", "-m", commitMessage], {
             cwd: root,
             env,
@@ -142,13 +137,12 @@ export function activate(context: vscode.ExtensionContext) {
     } catch (error: any) {
       const msg =
         error.stdout && error.stdout.includes("nothing to commit")
-          ? "Nothing to commit. Have you staged your changes?"
+          ? "Nothing to commit. Check if you have staged changes."
           : error.message || "Unknown Git error";
       vscode.window.showErrorMessage(msg);
     }
   }
 
-  // --- 3. Command Palette Trigger ---
   let disposable = vscode.commands.registerCommand(
     "backdating-git.commit",
     async () => {
@@ -157,7 +151,6 @@ export function activate(context: vscode.ExtensionContext) {
         ignoreFocusOut: true,
       });
       if (!message) return;
-
       const now = new Date().toISOString().replace("T", " ").slice(0, 19);
       const date = await vscode.window.showInputBox({
         prompt: "Date (YYYY-MM-DD HH:MM:SS)",
@@ -165,13 +158,11 @@ export function activate(context: vscode.ExtensionContext) {
         ignoreFocusOut: true,
       });
       if (!date) return;
-
       await executeGitCommit(message, date, date);
     },
   );
   context.subscriptions.push(disposable);
 
-  // --- 4. Modern Sidebar Webview Provider ---
   class BackdatingGitSidebarProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
 
@@ -202,9 +193,48 @@ export function activate(context: vscode.ExtensionContext) {
             await stageFile(root, data.file);
             this._refreshAll();
             break;
+          case "unstage":
+            await unstageFile(root, data.file);
+            this._refreshAll();
+            break;
+          case "discard":
+            const confirm = await vscode.window.showWarningMessage(
+              `Are you sure you want to discard changes in ${data.file}?`,
+              { modal: true },
+              "Discard Changes",
+            );
+            if (confirm) {
+              await discardChange(root, data.file, data.status);
+              this._refreshAll();
+            }
+            break;
           case "stageAll":
             await stageAll(root);
             this._refreshAll();
+            break;
+          case "unstageAll":
+            await unstageAll(root);
+            this._refreshAll();
+            break;
+          case "discardAll":
+            const confirmAll = await vscode.window.showWarningMessage(
+              "Are you sure you want to discard ALL changes?",
+              { modal: true },
+              "Discard All",
+            );
+            if (confirmAll) {
+              await discardAll(root);
+              this._refreshAll();
+            }
+            break;
+          case "openFile":
+            const fullPath = path.isAbsolute(data.file)
+              ? data.file
+              : path.join(root, data.file);
+            const doc = await vscode.workspace.openTextDocument(
+              vscode.Uri.file(fullPath),
+            );
+            await vscode.window.showTextDocument(doc);
             break;
           case "refresh":
             this._refreshAll();
@@ -219,7 +249,6 @@ export function activate(context: vscode.ExtensionContext) {
     private async _getRepoRootForSelection(): Promise<string | undefined> {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders || workspaceFolders.length === 0) return undefined;
-
       let cwd: string | undefined;
       const activeEditor = vscode.window.activeTextEditor;
       if (activeEditor) {
@@ -231,7 +260,6 @@ export function activate(context: vscode.ExtensionContext) {
           : vscode.Uri.joinPath(documentUri, "..").fsPath;
       }
       if (!cwd) cwd = workspaceFolders[0].uri.fsPath;
-
       return await getRepoRoot(cwd);
     }
 
@@ -252,10 +280,21 @@ export function activate(context: vscode.ExtensionContext) {
         .toISOString()
         .slice(0, 16);
 
+      const codiconsUri = webview.asWebviewUri(
+        vscode.Uri.joinPath(
+          this._extensionUri,
+          "node_modules",
+          "@vscode/codicons",
+          "dist",
+          "codicon.css",
+        ),
+      );
+
       return `<!DOCTYPE html>
         <html lang="en">
         <head>
           <meta charset="UTF-8">
+          <link href="${codiconsUri}" rel="stylesheet" />
           <style>
             :root {
               --bg: var(--vscode-sideBar-background);
@@ -265,11 +304,16 @@ export function activate(context: vscode.ExtensionContext) {
               --btn-hover: var(--vscode-button-hoverBackground);
               --border: var(--vscode-widget-border);
               --accent: var(--vscode-button-background);
+              --mod-fg: #e2c08d;
+              --add-fg: #81b88b;
+              --del-fg: #c74e39;
+              --unt-fg: #73c991;
             }
-            body { font-family: var(--vscode-font-family); color: var(--fg); padding: 12px; font-size: 13px; line-height: 1.4; }
+            body { font-family: var(--vscode-font-family); color: var(--fg); padding: 12px; font-size: 13px; line-height: 1.4; overflow-x: hidden; }
             .card { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 16px; backdrop-filter: blur(5px); }
-            .header-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
-            h3 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7; }
+            .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; cursor: pointer; user-select: none; }
+            h3 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7; pointer-events: none; }
+            .action-bar { display: flex; gap: 4px; }
             textarea, input { 
               width: 100%; box-sizing: border-box; background: var(--input-bg); color: var(--vscode-input-foreground); 
               border: 1px solid var(--vscode-input-border); border-radius: 4px; padding: 8px; font-family: inherit; margin-bottom: 8px;
@@ -296,27 +340,45 @@ export function activate(context: vscode.ExtensionContext) {
             }
             .btn-primary:hover { background: var(--btn-hover); transform: translateY(-1px); }
             
-            .file-item { display: flex; align-items: center; justify-content: space-between; padding: 4px 0; font-size: 11px; opacity: 0.9; }
-            .file-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; margin-right: 8px; }
-            .stage-btn { 
-              cursor: pointer; background: transparent; border: none; color: var(--fg); opacity: 0.5; font-size: 16px; font-weight: bold;
-              padding: 0 4px; border-radius: 4px; display: flex; align-items: center;
-            }
-            .stage-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); }
+            .file-list { margin-bottom: 12px; }
+            .file-item { display: flex; align-items: center; padding: 4px 6px; font-size: 12px; border-radius: 4px; transition: background 0.1s; cursor: pointer; position: relative; }
+            .file-item:hover { background: rgba(255,255,255,0.05); }
+            .file-item:hover .file-actions { display: flex; }
+            .status-badge { width: 14px; text-align: center; font-weight: bold; font-size: 10px; margin-right: 8px; border-radius: 2px; }
+            .S-M { color: var(--mod-fg); } .U-M { color: var(--mod-fg); }
+            .S-A { color: var(--add-fg); } .U-A { color: var(--add-fg); }
+            .S-D { color: var(--del-fg); } .U-D { color: var(--del-fg); }
+            .S-? { color: var(--unt-fg); } .U-? { color: var(--unt-fg); }
+            
+            .file-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; opacity: 0.8; }
+            .file-actions { display: none; position: absolute; right: 4px; background: var(--bg); padding-left: 8px; box-shadow: -10px 0 10px var(--bg); }
+            .icon-btn { cursor: pointer; padding: 2px 4px; opacity: 0.6; font-size: 14px; display: flex; align-items: center; justify-content: center; }
+            .icon-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); border-radius: 4px; }
             
             .history-item { font-size: 11px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); opacity: 0.8; }
             .history-item:last-child { border: none; }
             .history-item code { color: var(--accent); font-weight: bold; }
-            .empty-msg { font-size: 11px; opacity: 0.5; font-style: italic; text-align: center; padding: 10px 0; }
+            .empty-msg { font-size: 11px; opacity: 0.4; font-style: italic; text-align: center; padding: 8px 0; }
           </style>
         </head>
         <body>
           <div class="card">
-            <div class="header-row">
-              <h3>Changes</h3>
-              <button class="stage-btn" title="Stage All" onclick="stageAll()">+</button>
+            <div class="section-header" onclick="toggleSection('staged-files')">
+              <h3>Staged Changes</h3>
+              <div class="action-bar">
+                <span class="icon-btn codicon codicon-remove" title="Unstage All" onclick="event.stopPropagation(); unstageAll()"></span>
+              </div>
             </div>
-            <div id="statusList">Loading changes...</div>
+            <div id="staged-files" class="file-list"></div>
+
+            <div class="section-header" onclick="toggleSection('unstaged-files')">
+              <h3>Changes</h3>
+              <div class="action-bar">
+                <span class="icon-btn codicon codicon-discard" title="Discard All" onclick="event.stopPropagation(); discardAll()"></span>
+                <span class="icon-btn codicon codicon-add" title="Stage All" onclick="event.stopPropagation(); stageAll()"></span>
+              </div>
+            </div>
+            <div id="unstaged-files" class="file-list"></div>
           </div>
 
           <div class="card">
@@ -334,12 +396,10 @@ export function activate(context: vscode.ExtensionContext) {
             
             <label style="font-size:10px; opacity:0.6;">Author Date</label>
             <input type="datetime-local" id="authorDate" value="${localISOTime}">
-            
             <div id="committerDateGroup" class="hidden">
                 <label style="font-size:10px; opacity:0.6;">Committer Date</label>
                 <input type="datetime-local" id="committerDate" value="${localISOTime}">
             </div>
-
             <div class="toggle-group">
                 <span style="font-size:11px; opacity:0.8;">Same for Committer?</span>
                 <label class="switch">
@@ -359,6 +419,11 @@ export function activate(context: vscode.ExtensionContext) {
           <script>
             const vscode = acquireVsCodeApi();
             
+            function toggleSection(id) {
+              const el = document.getElementById(id);
+              el.style.display = el.style.display === 'none' ? 'block' : 'none';
+            }
+
             function toggleCommitter() {
               const sync = document.getElementById('syncDate').checked;
               document.getElementById('committerDateGroup').classList.toggle('hidden', sync);
@@ -373,52 +438,68 @@ export function activate(context: vscode.ExtensionContext) {
               document.getElementById('committerDate').value = formatted;
             }
 
-            function stageFile(file) {
-              vscode.postMessage({ type: 'stage', file: file });
-            }
-
-            function stageAll() {
-              vscode.postMessage({ type: 'stageAll' });
-            }
+            function stage(file) { vscode.postMessage({ type: 'stage', file }); }
+            function unstage(file) { vscode.postMessage({ type: 'unstage', file }); }
+            function discard(file, status) { vscode.postMessage({ type: 'discard', file, status }); }
+            function stageAll() { vscode.postMessage({ type: 'stageAll' }); }
+            function unstageAll() { vscode.postMessage({ type: 'unstageAll' }); }
+            function discardAll() { vscode.postMessage({ type: 'discardAll' }); }
+            function openFile(file) { vscode.postMessage({ type: 'openFile', file }); }
 
             function doCommit() {
               const msg = document.getElementById('msg').value;
               const authorDate = document.getElementById('authorDate').value.replace('T', ' ') + ':00';
               const sync = document.getElementById('syncDate').checked;
               const committerDate = sync ? authorDate : document.getElementById('committerDate').value.replace('T', ' ') + ':00';
-
               if(!msg) { alert('Please enter a message'); return; }
-
-              vscode.postMessage({
-                type: 'commit',
-                message: msg,
-                authorDate: authorDate,
-                committerDate: committerDate
-              });
+              vscode.postMessage({ type: 'commit', message: msg, authorDate, committerDate });
               document.getElementById('msg').value = '';
             }
 
             window.addEventListener('message', event => {
               const { type, history, status } = event.data;
-              
               if (type === 'update') {
-                // Update History
+                const stagedEl = document.getElementById('staged-files');
+                const unstagedEl = document.getElementById('unstaged-files');
+                
+                const staged = status.filter(s => s.staged !== ' ' && s.staged !== '?');
+                const unstaged = status.filter(s => s.unstaged !== ' ' || s.staged === '?');
+
+                stagedEl.innerHTML = staged.length ? staged.map(s => renderFileItem(s, true)).join('') : '<div class="empty-msg">Nothing staged</div>';
+                unstagedEl.innerHTML = unstaged.length ? unstaged.map(s => renderFileItem(s, false)).join('') : '<div class="empty-msg">No changes</div>';
+
                 const histList = document.getElementById('historyList');
                 histList.innerHTML = history.length > 0 ? history.map(h => {
                   const parts = h.split(' - ');
-                  return \`<div class="history-item"><code>\${parts[0]}</code> - \${parts.slice(1).join(' - ')}</div>\`;
+                  return '<div class="history-item"><code>' + parts[0] + '</code> - ' + parts.slice(1).join(' - ') + '</div>';
                 }).join('') : '<div class="empty-msg">No recent commits</div>';
-
-                // Update Status
-                const statList = document.getElementById('statusList');
-                statList.innerHTML = status.length > 0 ? status.map(s => \`
-                  <div class="file-item">
-                    <span class="file-path" title="\${s.path}">[\${s.status}] \${s.path}</span>
-                    <button class="stage-btn" onclick="stageFile('\${s.path}')">+</button>
-                  </div>
-                \`).join('') : '<div class="empty-msg">No changes to stage</div>';
               }
             });
+
+            function renderFileItem(s, isStaged) {
+              const statusChar = isStaged ? s.staged : (s.staged === '?' ? '?' : s.unstaged);
+              const statusClass = (isStaged ? 'S-' : 'U-') + statusChar;
+              
+              let actionBtn = '';
+              let discardBtn = '';
+
+              if (isStaged) {
+                actionBtn = '<span class="icon-btn codicon codicon-remove" title="Unstage" onclick="event.stopPropagation(); unstage(\'' + s.path + '\')"></span>';
+              } else {
+                actionBtn = '<span class="icon-btn codicon codicon-add" title="Stage" onclick="event.stopPropagation(); stage(\'' + s.path + '\')"></span>';
+                discardBtn = '<span class="icon-btn codicon codicon-discard" title="Discard Changes" onclick="event.stopPropagation(); discard(\'' + s.path + '\', \'' + (s.staged === '?' ? '??' : s.unstaged) + '\')"></span>';
+              }
+
+              return '<div class="file-item" onclick="openFile(\'' + s.path + '\')">' +
+                  '<span class="status-badge ' + statusClass + '">' + (statusChar === '?' ? 'U' : statusChar) + '</span>' +
+                  '<span class="file-path">' + s.path + '</span>' +
+                  '<div class="file-actions">' +
+                    '<span class="icon-btn codicon codicon-go-to-file" title="Open File" onclick="event.stopPropagation(); openFile(\'' + s.path + '\')"></span>' +
+                    discardBtn +
+                    actionBtn +
+                  '</div>' +
+                '</div>';
+            }
           </script>
         </body>
         </html>`;
