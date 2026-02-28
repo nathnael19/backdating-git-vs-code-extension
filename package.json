@@ -1,0 +1,54 @@
+{
+  "name": "backdating-git",
+  "displayName": "Backdating Git",
+  "description": "Create Git commits with custom backdated timestamps.",
+  "version": "1.0.0",
+  "engines": {
+    "vscode": "^1.80.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:backdating-git.commit"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "backdating-git.commit",
+        "title": "Backdating Git: Commit"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "backdating-git-container",
+          "title": "Backdating Git",
+          "icon": "icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "backdating-git-container": [
+        {
+          "type": "webview",
+          "id": "backdating-git.sidebar",
+          "name": "Commit Options"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "pretest": "npm run compile && npm run lint",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/vscode": "^1.80.0",
+    "@types/node": "^18.x",
+    "typescript": "^5.0.0"
+  }
+}
