@@ -4,8 +4,19 @@ import { promisify } from "util";
 import * as path from "path";
 
 const execFileAsync = promisify(execFile);
+let outputChannel: vscode.OutputChannel;
+
+function log(message: string) {
+  if (outputChannel) {
+    const time = new Date().toLocaleTimeString();
+    outputChannel.appendLine(`[${time}] ${message}`);
+  }
+}
 
 export function activate(context: vscode.ExtensionContext) {
+  outputChannel = vscode.window.createOutputChannel("Backdating Git");
+  log("Extension activated");
+
   // --- 1. Git Utilities ---
   async function getRepoRoot(cwd: string): Promise<string | undefined> {
     try {
@@ -14,8 +25,11 @@ export function activate(context: vscode.ExtensionContext) {
         ["rev-parse", "--show-toplevel"],
         { cwd },
       );
-      return stdout.trim();
-    } catch {
+      const root = stdout.trim();
+      log(`Found repo root: ${root} for cwd: ${cwd}`);
+      return root;
+    } catch (e: any) {
+      log(`getRepoRoot failed for ${cwd}: ${e.message}`);
       return undefined;
     }
   }
@@ -28,7 +42,8 @@ export function activate(context: vscode.ExtensionContext) {
         { cwd },
       );
       return stdout.split("\n").filter((line) => line.trim() !== "");
-    } catch {
+    } catch (e: any) {
+      log(`getRecentCommits failed: ${e.message}`);
       return ["No commits found"];
     }
   }
@@ -48,20 +63,24 @@ export function activate(context: vscode.ExtensionContext) {
           unstaged: line.slice(1, 2).trim() || " ",
           path: line.slice(3).trim(),
         }));
-    } catch {
+    } catch (e: any) {
+      log(`getGitStatus failed: ${e.message}`);
       return [];
     }
   }
 
   async function stageFile(cwd: string, filePath: string) {
+    log(`Staging: ${filePath}`);
     await execFileAsync("git", ["add", filePath], { cwd });
   }
 
   async function unstageFile(cwd: string, filePath: string) {
+    log(`Unstaging: ${filePath}`);
     await execFileAsync("git", ["reset", "HEAD", "--", filePath], { cwd });
   }
 
   async function discardChange(cwd: string, filePath: string, status: string) {
+    log(`Discarding: ${filePath} (status: ${status})`);
     if (status === "??") {
       const fullPath = path.isAbsolute(filePath)
         ? filePath
@@ -73,19 +92,23 @@ export function activate(context: vscode.ExtensionContext) {
   }
 
   async function stageAll(cwd: string) {
+    log("Staging all changes");
     await execFileAsync("git", ["add", "."], { cwd });
   }
 
   async function unstageAll(cwd: string) {
+    log("Unstaging all changes");
     await execFileAsync("git", ["reset"], { cwd });
   }
 
   async function discardAll(cwd: string) {
+    log("Discarding all changes");
     await execFileAsync("git", ["checkout", "."], { cwd });
     await execFileAsync("git", ["clean", "-fd"], { cwd });
   }
 
   async function pushToRemote(cwd: string) {
+    log("Pushing to remote...");
     try {
       await vscode.window.withProgress(
         {
@@ -99,6 +122,7 @@ export function activate(context: vscode.ExtensionContext) {
       );
       vscode.window.showInformationMessage("Successfully pushed to remote!");
     } catch (error: any) {
+      log(`Push failed: ${error.stderr || error.message}`);
       vscode.window.showErrorMessage(
         "Push failed: " + (error.stderr || error.message),
       );
@@ -116,12 +140,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (!cwd) {
         const activeEditor = vscode.window.activeTextEditor;
         if (activeEditor) {
-          const documentUri = activeEditor.document.uri;
-          const workspaceFolderForDocument =
-            vscode.workspace.getWorkspaceFolder(documentUri);
-          cwd = workspaceFolderForDocument
-            ? workspaceFolderForDocument.uri.fsPath
-            : vscode.Uri.joinPath(documentUri, "..").fsPath;
+          cwd = path.dirname(activeEditor.document.uri.fsPath);
         }
       }
 
@@ -133,6 +152,7 @@ export function activate(context: vscode.ExtensionContext) {
         return;
       }
 
+      log(`Executing commit in root: ${root}`);
       await vscode.window.withProgress(
         {
           location: vscode.ProgressLocation.Notification,
@@ -159,6 +179,7 @@ export function activate(context: vscode.ExtensionContext) {
         error.stdout && error.stdout.includes("nothing to commit")
           ? "Nothing to commit. Check if you have staged changes."
           : error.message || "Unknown Git error";
+      log(`Commit failed: ${msg}`);
       vscode.window.showErrorMessage(msg);
     }
   }
@@ -197,7 +218,10 @@ export function activate(context: vscode.ExtensionContext) {
 
       webviewView.webview.onDidReceiveMessage(async (data) => {
         const root = await this._getRepoRootForSelection();
-        if (!root) return;
+        if (!root && data.type !== "refresh") {
+          log(`Message ignored: No repo root found for action ${data.type}`);
+          return;
+        }
 
         switch (data.type) {
           case "commit":
@@ -205,20 +229,20 @@ export function activate(context: vscode.ExtensionContext) {
               data.message,
               data.authorDate,
               data.committerDate,
-              root,
+              root!,
             );
             this._refreshAll();
             break;
           case "push":
-            await pushToRemote(root);
+            await pushToRemote(root!);
             this._refreshAll();
             break;
           case "stage":
-            await stageFile(root, data.file);
+            await stageFile(root!, data.file);
             this._refreshAll();
             break;
           case "unstage":
-            await unstageFile(root, data.file);
+            await unstageFile(root!, data.file);
             this._refreshAll();
             break;
           case "discard":
@@ -228,16 +252,16 @@ export function activate(context: vscode.ExtensionContext) {
               "Discard Changes",
             );
             if (confirm) {
-              await discardChange(root, data.file, data.status);
+              await discardChange(root!, data.file, data.status);
               this._refreshAll();
             }
             break;
           case "stageAll":
-            await stageAll(root);
+            await stageAll(root!);
             this._refreshAll();
             break;
           case "unstageAll":
-            await unstageAll(root);
+            await unstageAll(root!);
             this._refreshAll();
             break;
           case "discardAll":
@@ -247,44 +271,67 @@ export function activate(context: vscode.ExtensionContext) {
               "Discard All",
             );
             if (confirmAll) {
-              await discardAll(root);
+              await discardAll(root!);
               this._refreshAll();
             }
             break;
           case "openFile":
             const fullPath = path.isAbsolute(data.file)
               ? data.file
-              : path.join(root, data.file);
+              : path.join(root!, data.file);
             const doc = await vscode.workspace.openTextDocument(
               vscode.Uri.file(fullPath),
             );
             await vscode.window.showTextDocument(doc);
             break;
           case "refresh":
+            log("Manual refresh requested");
             this._refreshAll();
             break;
         }
       });
 
       this._refreshAll();
-      setInterval(() => this._refreshAll(), 10000);
+      setInterval(() => this._refreshAll(), 5000);
     }
 
     private async _getRepoRootForSelection(): Promise<string | undefined> {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders || workspaceFolders.length === 0) return undefined;
-      let cwd: string | undefined;
+
+      // 1. Try active editor directory
       const activeEditor = vscode.window.activeTextEditor;
       if (activeEditor) {
-        const documentUri = activeEditor.document.uri;
-        const workspaceFolderForDocument =
-          vscode.workspace.getWorkspaceFolder(documentUri);
-        cwd = workspaceFolderForDocument
-          ? workspaceFolderForDocument.uri.fsPath
-          : vscode.Uri.joinPath(documentUri, "..").fsPath;
+        const root = await getRepoRoot(
+          path.dirname(activeEditor.document.uri.fsPath),
+        );
+        if (root) return root;
       }
-      if (!cwd) cwd = workspaceFolders[0].uri.fsPath;
-      return await getRepoRoot(cwd);
+
+      // 2. Try workspace roots
+      for (const folder of workspaceFolders) {
+        const root = await getRepoRoot(folder.uri.fsPath);
+        if (root) return root;
+      }
+
+      // 3. Fallback: Scan subdirectories (for monorepos)
+      log("Deep scanning workspace for .git folders...");
+      for (const folder of workspaceFolders) {
+        try {
+          const children = await vscode.workspace.fs.readDirectory(folder.uri);
+          for (const [name, type] of children) {
+            if (type === vscode.FileType.Directory) {
+              const subPath = path.join(folder.uri.fsPath, name);
+              const root = await getRepoRoot(subPath);
+              if (root) return root;
+            }
+          }
+        } catch (e) {
+          log(`Scan failed for ${folder.name}: ${e}`);
+        }
+      }
+
+      return undefined;
     }
 
     private async _refreshAll() {
@@ -293,7 +340,14 @@ export function activate(context: vscode.ExtensionContext) {
       if (root) {
         const history = await getRecentCommits(root);
         const status = await getGitStatus(root);
-        this._view.webview.postMessage({ type: "update", history, status });
+        this._view.webview.postMessage({
+          type: "update",
+          history,
+          status,
+          root,
+        });
+      } else {
+        this._view.webview.postMessage({ type: "no-repo" });
       }
     }
 
@@ -387,69 +441,85 @@ export function activate(context: vscode.ExtensionContext) {
             .push-section { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
             .btn-push { background: transparent; border: 1px solid var(--accent); color: var(--accent); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; display: flex; align-items: center; gap: 4px; transition: 0.2s; }
             .btn-push:hover { background: var(--accent); color: white; }
+            
+            .no-repo { text-align: center; padding: 40px 20px; opacity: 0.6; }
+            .no-repo i { font-size: 32px; display: block; margin-bottom: 12px; }
+            .repo-path { font-size: 10px; opacity: 0.5; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
           </style>
         </head>
         <body>
-          <div class="card">
-            <div class="section-header" onclick="toggleSection('staged-files')">
-              <h3>Staged Changes</h3>
-              <div class="action-bar">
-                <span class="icon-btn codicon codicon-remove" title="Unstage All" onclick="event.stopPropagation(); unstageAll()"></span>
-              </div>
-            </div>
-            <div id="staged-files" class="file-list"></div>
+          <div id="repo-container">
+            <div class="repo-path" id="currentRepo">No repository selected</div>
+            <div class="card">
+                <div class="section-header" onclick="toggleSection('staged-files')">
+                <h3>Staged Changes</h3>
+                <div class="action-bar">
+                    <span class="icon-btn codicon codicon-remove" title="Unstage All" onclick="event.stopPropagation(); unstageAll()"></span>
+                </div>
+                </div>
+                <div id="staged-files" class="file-list"></div>
 
-            <div class="section-header" onclick="toggleSection('unstaged-files')">
-              <h3>Changes</h3>
-              <div class="action-bar">
-                <span class="icon-btn codicon codicon-discard" title="Discard All" onclick="event.stopPropagation(); discardAll()"></span>
-                <span class="icon-btn codicon codicon-add" title="Stage All" onclick="event.stopPropagation(); stageAll()"></span>
-              </div>
+                <div class="section-header" onclick="toggleSection('unstaged-files')">
+                <h3>Changes</h3>
+                <div class="action-bar">
+                    <span class="icon-btn codicon codicon-discard" title="Discard All" onclick="event.stopPropagation(); discardAll()"></span>
+                    <span class="icon-btn codicon codicon-add" title="Stage All" onclick="event.stopPropagation(); stageAll()"></span>
+                </div>
+                </div>
+                <div id="unstaged-files" class="file-list"></div>
             </div>
-            <div id="unstaged-files" class="file-list"></div>
+
+            <div class="card">
+                <h3>Commit Message</h3>
+                <textarea id="msg" placeholder="What did you change?"></textarea>
+            </div>
+
+            <div class="card">
+                <h3>Date & Time</h3>
+                <div class="presets">
+                    <button class="preset-btn" onclick="setPreset(1)">Yesterday</button>
+                    <button class="preset-btn" onclick="setPreset(7)">1 Week Ago</button>
+                    <button class="preset-btn" onclick="setPreset(30)">1 Month Ago</button>
+                </div>
+                
+                <label style="font-size:10px; opacity:0.6;">Author Date</label>
+                <input type="datetime-local" id="authorDate" value="${localISOTime}">
+                <div id="committerDateGroup" class="hidden">
+                    <label style="font-size:10px; opacity:0.6;">Committer Date</label>
+                    <input type="datetime-local" id="committerDate" value="${localISOTime}">
+                </div>
+                <div class="toggle-group">
+                    <span style="font-size:11px; opacity:0.8;">Same for Committer?</span>
+                    <label class="switch">
+                        <input type="checkbox" id="syncDate" checked onchange="toggleCommitter()">
+                        <span class="slider"></span>
+                    </label>
+                </div>
+            </div>
+
+            <div style="display: flex; gap: 8px;">
+                <button class="btn-primary" style="flex: 2;" onclick="doCommit()">Backdate Commit</button>
+                <button class="btn-push" title="Push to Remote" onclick="pushToRemote()">
+                <span class="codicon codicon-cloud-upload"></span> Push
+                </button>
+            </div>
+
+            <div class="card" style="margin-top:20px;">
+                <div class="section-header">
+                <h3>Recent History</h3>
+                <span class="icon-btn codicon codicon-refresh" title="Refresh Status" onclick="refreshStatus()"></span>
+                </div>
+                <div id="historyList">Loading history...</div>
+            </div>
           </div>
 
-          <div class="card">
-            <h3>Commit Message</h3>
-            <textarea id="msg" placeholder="What did you change?"></textarea>
-          </div>
-
-          <div class="card">
-            <h3>Date & Time</h3>
-            <div class="presets">
-                <button class="preset-btn" onclick="setPreset(1)">Yesterday</button>
-                <button class="preset-btn" onclick="setPreset(7)">1 Week Ago</button>
-                <button class="preset-btn" onclick="setPreset(30)">1 Month Ago</button>
+          <div id="no-repo-container" class="hidden">
+            <div class="no-repo">
+                <i class="codicon codicon-error"></i>
+                <p>No Git repository found in the current context.</p>
+                <p style="font-size:11px;">Open a file from a Git repo or initialize one to get started.</p>
+                <button class="btn-primary" onclick="refreshStatus()" style="margin-top:12px;">Retry Discovery</button>
             </div>
-            
-            <label style="font-size:10px; opacity:0.6;">Author Date</label>
-            <input type="datetime-local" id="authorDate" value="${localISOTime}">
-            <div id="committerDateGroup" class="hidden">
-                <label style="font-size:10px; opacity:0.6;">Committer Date</label>
-                <input type="datetime-local" id="committerDate" value="${localISOTime}">
-            </div>
-            <div class="toggle-group">
-                <span style="font-size:11px; opacity:0.8;">Same for Committer?</span>
-                <label class="switch">
-                    <input type="checkbox" id="syncDate" checked onchange="toggleCommitter()">
-                    <span class="slider"></span>
-                </label>
-            </div>
-          </div>
-
-          <div style="display: flex; gap: 8px;">
-            <button class="btn-primary" style="flex: 2;" onclick="doCommit()">Backdate Commit</button>
-            <button class="btn-push" title="Push to Remote" onclick="pushToRemote()">
-              <span class="codicon codicon-cloud-upload"></span> Push
-            </button>
-          </div>
-
-          <div class="card" style="margin-top:20px;">
-            <div class="section-header">
-              <h3>Recent History</h3>
-              <span class="icon-btn codicon codicon-refresh" title="Refresh Status" onclick="refreshStatus()"></span>
-            </div>
-            <div id="historyList">Loading history...</div>
           </div>
 
           <script>
@@ -495,8 +565,23 @@ export function activate(context: vscode.ExtensionContext) {
             }
 
             window.addEventListener('message', event => {
-              const { type, history, status } = event.data;
-              if (type === 'update') {
+              const data = event.data;
+              const repoContainer = document.getElementById('repo-container');
+              const noRepoContainer = document.getElementById('no-repo-container');
+
+              if (data.type === 'no-repo') {
+                repoContainer.classList.add('hidden');
+                noRepoContainer.classList.remove('hidden');
+                return;
+              }
+
+              if (data.type === 'update') {
+                repoContainer.classList.remove('hidden');
+                noRepoContainer.classList.add('hidden');
+                
+                document.getElementById('currentRepo').textContent = data.root;
+
+                const { history, status } = data;
                 const stagedEl = document.getElementById('staged-files');
                 const unstagedEl = document.getElementById('unstaged-files');
                 
@@ -552,4 +637,8 @@ export function activate(context: vscode.ExtensionContext) {
   );
 }
 
-export function deactivate() {}
+export function deactivate() {
+  if (outputChannel) {
+    outputChannel.dispose();
+  }
+}
