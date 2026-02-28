@@ -1,14 +1,20 @@
 {
   "name": "backdating-git",
   "displayName": "Backdating Git",
+  "icon": "icon.png",
   "description": "Create Git commits with custom backdated timestamps.",
   "version": "1.0.0",
+  "publisher": "nathnael19",
   "license": "MIT",
   "engines": {
     "vscode": "^1.80.0"
   },
-  "categories": ["Other"],
-  "activationEvents": ["onView:backdating-git.sidebar"],
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onView:backdating-git.sidebar"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
@@ -22,7 +28,7 @@
         {
           "id": "backdating-git-container",
           "title": "Backdating Git",
-          "icon": "icon.svg"
+          "icon": "icon.png"
         }
       ]
     },
