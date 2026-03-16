@@ -34,6 +34,22 @@ export function activate(context: vscode.ExtensionContext) {
     }
   }
 
+  async function getCurrentBranch(cwd: string): Promise<string | undefined> {
+    try {
+      const { stdout } = await execFileAsync(
+        "git",
+        ["rev-parse", "--abbrev-ref", "HEAD"],
+        { cwd },
+      );
+      const branch = stdout.trim();
+      log(`Current branch for ${cwd}: ${branch}`);
+      return branch;
+    } catch (e: any) {
+      log(`getCurrentBranch failed for ${cwd}: ${e.message}`);
+      return undefined;
+    }
+  }
+
   async function getRecentCommits(cwd: string): Promise<string[]> {
     try {
       const { stdout } = await execFileAsync(
@@ -206,6 +222,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   class BackdatingGitSidebarProvider implements vscode.WebviewViewProvider {
     private _view?: vscode.WebviewView;
+    private _refreshInterval?: NodeJS.Timeout;
 
     constructor(private readonly _extensionUri: vscode.Uri) {}
 
@@ -296,7 +313,29 @@ export function activate(context: vscode.ExtensionContext) {
       });
 
       this._refreshAll();
-      setInterval(() => this._refreshAll(), 5000);
+
+      if (this._refreshInterval) {
+        clearInterval(this._refreshInterval);
+      }
+
+      this._refreshInterval = setInterval(() => {
+        if (this._view?.visible) {
+          this._refreshAll();
+        }
+      }, 10000);
+
+      webviewView.onDidChangeVisibility(() => {
+        if (this._view?.visible) {
+          this._refreshAll();
+        }
+      });
+
+      webviewView.onDidDispose(() => {
+        if (this._refreshInterval) {
+          clearInterval(this._refreshInterval);
+          this._refreshInterval = undefined;
+        }
+      });
     }
 
     private async _getRepoRootForSelection(): Promise<string | undefined> {
@@ -342,6 +381,7 @@ export function activate(context: vscode.ExtensionContext) {
       if (!this._view) return;
       const root = await this._getRepoRootForSelection();
       if (root) {
+        const branch = await getCurrentBranch(root);
         const history = await getRecentCommits(root);
         const status = await getGitStatus(root);
         this._view.webview.postMessage({
@@ -349,6 +389,7 @@ export function activate(context: vscode.ExtensionContext) {
           history,
           status,
           root,
+          branch,
         });
       } else {
         this._view.webview.postMessage({ type: "no-repo" });
@@ -391,10 +432,67 @@ export function activate(context: vscode.ExtensionContext) {
               --del-fg: #c74e39;
               --unt-fg: #73c991;
             }
-            body { font-family: var(--vscode-font-family); color: var(--fg); padding: 12px; font-size: 13px; line-height: 1.4; overflow-x: hidden; }
-            .card { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 8px; padding: 12px; margin-bottom: 16px; backdrop-filter: blur(5px); }
-            .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; cursor: pointer; user-select: none; }
-            h3 { margin: 0; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; opacity: 0.7; pointer-events: none; }
+            body {
+              font-family: var(--vscode-font-family);
+              color: var(--fg);
+              padding: 12px;
+              font-size: 13px;
+              line-height: 1.4;
+              overflow-x: hidden;
+              background: linear-gradient(
+                145deg,
+                rgba(255, 255, 255, 0.02),
+                rgba(0, 0, 0, 0.15)
+              );
+            }
+            .surface {
+              border-radius: 10px;
+              border: 1px solid rgba(255, 255, 255, 0.04);
+              background-color: rgba(0, 0, 0, 0.35);
+              box-shadow:
+                0 18px 45px rgba(0, 0, 0, 0.55),
+                0 0 0 1px rgba(255, 255, 255, 0.03);
+              padding: 10px;
+            }
+            .card {
+              background: radial-gradient(
+                circle at 0 0,
+                rgba(255, 255, 255, 0.07),
+                rgba(255, 255, 255, 0.01)
+              );
+              border: 1px solid rgba(255, 255, 255, 0.05);
+              border-radius: 10px;
+              padding: 10px 10px 8px;
+              margin-bottom: 10px;
+              backdrop-filter: blur(8px);
+              box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+            }
+            .section-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              margin-bottom: 4px;
+              cursor: pointer;
+              user-select: none;
+            }
+            h3 {
+              margin: 0;
+              font-size: 11px;
+              text-transform: uppercase;
+              letter-spacing: 0.12em;
+              opacity: 0.7;
+              pointer-events: none;
+            }
+            .section-title-pill {
+              padding: 2px 8px;
+              border-radius: 999px;
+              background: rgba(255, 255, 255, 0.03);
+              border: 1px solid rgba(255, 255, 255, 0.06);
+            }
+            .section-header:hover .section-title-pill {
+              border-color: rgba(255, 255, 255, 0.16);
+              background: rgba(255, 255, 255, 0.06);
+            }
             .action-bar { display: flex; gap: 4px; }
             textarea, input { 
               width: 100%; box-sizing: border-box; background: var(--input-bg); color: var(--vscode-input-foreground); 
@@ -417,27 +515,104 @@ export function activate(context: vscode.ExtensionContext) {
             input:checked + .slider:before { transform: translateX(14px); }
             .hidden { display: none; }
             .btn-primary { 
-              width: 100%; padding: 10px; background: var(--btn-bg); color: white; border: none; 
-              border-radius: 6px; font-weight: bold; cursor: pointer; transition: 0.2s; 
+              width: 100%;
+              padding: 9px 10px;
+              background: linear-gradient(135deg, var(--btn-bg), var(--accent));
+              color: white;
+              border: none;
+              border-radius: 999px;
+              font-weight: 600;
+              cursor: pointer;
+              transition:
+                background 0.12s ease-out,
+                box-shadow 0.12s ease-out,
+                transform 0.08s ease-out,
+                opacity 0.08s ease-out;
+              box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
             }
-            .btn-primary:hover { background: var(--btn-hover); transform: translateY(-1px); }
+            .btn-primary:hover {
+              background: linear-gradient(
+                135deg,
+                var(--btn-hover),
+                var(--accent)
+              );
+              transform: translateY(-1px);
+              box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7);
+            }
+            .btn-primary:disabled {
+              opacity: 0.55;
+              cursor: default;
+              box-shadow: none;
+              transform: none;
+            }
             
             .file-list { margin-bottom: 12px; }
-            .file-item { display: flex; align-items: center; padding: 4px 6px; font-size: 12px; border-radius: 4px; transition: background 0.1s; cursor: pointer; position: relative; }
-            .file-item:hover { background: rgba(255,255,255,0.05); }
+            .file-item {
+              display: flex;
+              align-items: center;
+              padding: 4px 6px;
+              font-size: 12px;
+              border-radius: 6px;
+              transition: background 0.08s, transform 0.08s;
+              cursor: pointer;
+              position: relative;
+            }
+            .file-item:hover {
+              background: rgba(255, 255, 255, 0.05);
+              transform: translateY(-0.5px);
+            }
             .file-item:hover .file-actions { display: flex; }
-            .status-badge { width: 14px; text-align: center; font-weight: bold; font-size: 10px; margin-right: 8px; border-radius: 2px; }
-            .S-M { color: var(--mod-fg); } .U-M { color: var(--mod-fg); }
-            .S-A { color: var(--add-fg); } .U-A { color: var(--add-fg); }
-            .S-D { color: var(--del-fg); } .U-D { color: var(--del-fg); }
-            .S-? { color: var(--unt-fg); } .U-? { color: var(--unt-fg); }
+            .status-badge {
+              min-width: 18px;
+              text-align: center;
+              font-weight: 700;
+              font-size: 10px;
+              margin-right: 8px;
+              border-radius: 999px;
+              padding: 1px 6px;
+              border: 1px solid transparent;
+              background: rgba(255, 255, 255, 0.02);
+            }
+            .S-M, .U-M {
+              color: var(--mod-fg);
+              border-color: rgba(226, 192, 141, 0.45);
+              background: rgba(226, 192, 141, 0.1);
+            }
+            .S-A, .U-A {
+              color: var(--add-fg);
+              border-color: rgba(129, 184, 139, 0.5);
+              background: rgba(129, 184, 139, 0.12);
+            }
+            .S-D, .U-D {
+              color: var(--del-fg);
+              border-color: rgba(199, 78, 57, 0.55);
+              background: rgba(199, 78, 57, 0.14);
+            }
+            .S-?, .U-? {
+              color: var(--unt-fg);
+              border-color: rgba(115, 201, 145, 0.5);
+              background: rgba(115, 201, 145, 0.14);
+            }
             
             .file-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; opacity: 0.8; }
-            .file-actions { display: none; position: absolute; right: 4px; background: var(--bg); padding-left: 8px; box-shadow: -10px 0 10px var(--bg); }
+            .file-actions {
+              display: none;
+              position: absolute;
+              right: 4px;
+              background: rgba(0, 0, 0, 0.7);
+              padding-left: 8px;
+              box-shadow: -10px 0 16px rgba(0, 0, 0, 0.9);
+              border-radius: 6px;
+            }
             .icon-btn { cursor: pointer; padding: 2px 4px; opacity: 0.6; font-size: 14px; display: flex; align-items: center; justify-content: center; }
             .icon-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); border-radius: 4px; }
             
-            .history-item { font-size: 11px; padding: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.05); opacity: 0.8; }
+            .history-item {
+              font-size: 11px;
+              padding: 6px 0;
+              border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+              opacity: 0.8;
+            }
             .history-item:last-child { border: none; }
             .history-item code { color: var(--accent); font-weight: bold; }
             .empty-msg { font-size: 11px; opacity: 0.4; font-style: italic; text-align: center; padding: 8px 0; }
@@ -448,15 +623,54 @@ export function activate(context: vscode.ExtensionContext) {
             
             .no-repo { text-align: center; padding: 40px 20px; opacity: 0.6; }
             .no-repo i { font-size: 32px; display: block; margin-bottom: 12px; }
-            .repo-path { font-size: 10px; opacity: 0.5; margin-bottom: 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+            .repo-header {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              margin-bottom: 8px;
+              gap: 8px;
+            }
+            .repo-path {
+              font-size: 10px;
+              opacity: 0.65;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+            }
+            .branch-pill {
+              font-size: 10px;
+              padding: 2px 6px;
+              border-radius: 999px;
+              border: 1px solid rgba(255, 255, 255, 0.18);
+              background: radial-gradient(
+                circle at 0 0,
+                rgba(255, 255, 255, 0.18),
+                rgba(0, 0, 0, 0.7)
+              );
+              display: inline-flex;
+              align-items: center;
+              gap: 4px;
+              opacity: 0.9;
+            }
+            .branch-pill .codicon {
+              font-size: 12px;
+            }
           </style>
         </head>
         <body>
-          <div id="repo-container">
-            <div class="repo-path" id="currentRepo">No repository selected</div>
+          <div class="surface" id="repo-container">
+            <div class="repo-header">
+              <div class="repo-path" id="currentRepo">No repository selected</div>
+              <div id="branchPill" class="branch-pill hidden">
+                <span class="codicon codicon-git-branch"></span>
+                <span id="currentBranchName"></span>
+              </div>
+            </div>
             <div class="card">
                 <div class="section-header" onclick="toggleSection('staged-files')">
-                <h3>Staged Changes</h3>
+                <div class="section-title-pill">
+                  <h3>Staged Changes</h3>
+                </div>
                 <div class="action-bar">
                     <span class="icon-btn codicon codicon-remove" title="Unstage All" onclick="event.stopPropagation(); unstageAll()"></span>
                 </div>
@@ -464,7 +678,9 @@ export function activate(context: vscode.ExtensionContext) {
                 <div id="staged-files" class="file-list"></div>
 
                 <div class="section-header" onclick="toggleSection('unstaged-files')">
-                <h3>Changes</h3>
+                <div class="section-title-pill">
+                  <h3>Changes</h3>
+                </div>
                 <div class="action-bar">
                     <span class="icon-btn codicon codicon-discard" title="Discard All" onclick="event.stopPropagation(); discardAll()"></span>
                     <span class="icon-btn codicon codicon-add" title="Stage All" onclick="event.stopPropagation(); stageAll()"></span>
@@ -474,12 +690,16 @@ export function activate(context: vscode.ExtensionContext) {
             </div>
 
             <div class="card">
-                <h3>Commit Message</h3>
+                <div class="section-title-pill" style="margin-bottom:6px;">
+                  <h3>Commit Message</h3>
+                </div>
                 <textarea id="msg" placeholder="What did you change?"></textarea>
             </div>
 
             <div class="card">
-                <h3>Date & Time</h3>
+                <div class="section-title-pill" style="margin-bottom:6px;">
+                  <h3>Date & Time</h3>
+                </div>
                 <div class="presets">
                     <button class="preset-btn" onclick="setPreset(1)">Yesterday</button>
                     <button class="preset-btn" onclick="setPreset(7)">1 Week Ago</button>
@@ -502,7 +722,7 @@ export function activate(context: vscode.ExtensionContext) {
             </div>
 
             <div style="display: flex; gap: 8px;">
-                <button class="btn-primary" style="flex: 2;" onclick="doCommit()">Backdate Commit</button>
+                <button class="btn-primary" id="commitButton" style="flex: 2;" onclick="doCommit()">Backdate Commit</button>
                 <button class="btn-push" title="Push to Remote" onclick="pushToRemote()">
                 <span class="codicon codicon-cloud-upload"></span> Push
                 </button>
@@ -510,7 +730,9 @@ export function activate(context: vscode.ExtensionContext) {
 
             <div class="card" style="margin-top:20px;">
                 <div class="section-header">
-                <h3>Recent History</h3>
+                <div class="section-title-pill">
+                  <h3>Recent History</h3>
+                </div>
                 <span class="icon-btn codicon codicon-refresh" title="Refresh Status" onclick="refreshStatus()"></span>
                 </div>
                 <div id="historyList">Loading history...</div>
@@ -528,6 +750,13 @@ export function activate(context: vscode.ExtensionContext) {
 
           <script>
             const vscode = acquireVsCodeApi();
+            const commitButton = document.getElementById('commitButton');
+            const commitMessageInput = document.getElementById('msg');
+
+            function updateCommitButtonState(hasChanges) {
+              const msg = commitMessageInput.value.trim();
+              commitButton.disabled = !msg || !hasChanges;
+            }
             
             function toggleSection(id) {
               const el = document.getElementById(id);
@@ -559,13 +788,14 @@ export function activate(context: vscode.ExtensionContext) {
             function refreshStatus() { vscode.postMessage({ type: 'refresh' }); }
 
             function doCommit() {
-              const msg = document.getElementById('msg').value;
+              const msg = commitMessageInput.value.trim();
               const authorDate = document.getElementById('authorDate').value.replace('T', ' ') + ':00';
               const sync = document.getElementById('syncDate').checked;
               const committerDate = sync ? authorDate : document.getElementById('committerDate').value.replace('T', ' ') + ':00';
-              if(!msg) { alert('Please enter a message'); return; }
+              if(!msg) { alert('Please enter a commit message'); return; }
               vscode.postMessage({ type: 'commit', message: msg, authorDate, committerDate });
-              document.getElementById('msg').value = '';
+              commitMessageInput.value = '';
+              updateCommitButtonState(false);
             }
 
             window.addEventListener('message', event => {
@@ -582,8 +812,16 @@ export function activate(context: vscode.ExtensionContext) {
               if (data.type === 'update') {
                 repoContainer.classList.remove('hidden');
                 noRepoContainer.classList.add('hidden');
-                
                 document.getElementById('currentRepo').textContent = data.root;
+
+                const branchPill = document.getElementById('branchPill');
+                const branchNameEl = document.getElementById('currentBranchName');
+                if (data.branch) {
+                  branchNameEl.textContent = data.branch;
+                  branchPill.classList.remove('hidden');
+                } else {
+                  branchPill.classList.add('hidden');
+                }
 
                 const { history, status } = data;
                 const stagedEl = document.getElementById('staged-files');
@@ -600,7 +838,17 @@ export function activate(context: vscode.ExtensionContext) {
                   const parts = h.split(' - ');
                   return '<div class="history-item"><code>' + parts[0] + '</code> - ' + parts.slice(1).join(' - ') + '</div>';
                 }).join('') : '<div class="empty-msg">No recent commits</div>';
+
+                const hasAnyChanges = staged.length > 0 || unstaged.length > 0;
+                updateCommitButtonState(hasAnyChanges);
               }
+            });
+
+            commitMessageInput.addEventListener('input', () => {
+              const stagedEls = document.querySelectorAll('#staged-files .file-item');
+              const unstagedEls = document.querySelectorAll('#unstaged-files .file-item');
+              const hasAnyChanges = stagedEls.length > 0 || unstagedEls.length > 0;
+              updateCommitButtonState(hasAnyChanges);
             });
 
             function renderFileItem(s, isStaged) {
