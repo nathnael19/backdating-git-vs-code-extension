@@ -1,10 +1,10 @@
 {
   "name": "backdating-git",
   "displayName": "Backdating Git",
-  "icon": "icon.png",
+  "icon": "icon.svg",
   "description": "Create Git commits with custom backdated timestamps.",
-  "version": "1.0.2",
-  "publisher": "nathnael19",
+  "version": "1.0.3",
+  "publisher": "Nathnael Nigussie",
   "repository": {
     "type": "git",
     "url": "https://github.com/nathnael19/backdating-git-vs-code-extension.git"
@@ -27,7 +27,8 @@
     "gui"
   ],
   "activationEvents": [
-    "onView:backdating-git.sidebar"
+    "onView:backdating-git.sidebar",
+    "onCommand:backdating-git.commit"
   ],
   "main": "./out/extension.js",
   "contributes": {
@@ -42,7 +43,7 @@
         {
           "id": "backdating-git-container",
           "title": "Backdating Git",
-          "icon": "icon.png"
+          "icon": "icon.svg"
         }
       ]
     },
@@ -69,8 +70,8 @@
   "devDependencies": {
     "@types/node": "^18.x",
     "@types/vscode": "^1.80.0",
-    "@typescript-eslint/eslint-plugin": "^6.0.0",
-    "@typescript-eslint/parser": "^6.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.7.0",
+    "@typescript-eslint/parser": "^7.7.0",
     "eslint": "^8.0.0",
     "typescript": "^5.0.0"
   }
