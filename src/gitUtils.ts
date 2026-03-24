@@ -4,6 +4,7 @@ import { promisify } from "util";
 import * as path from "path";
 
 const execFileAsync = promisify(execFile);
+const GIT_BIN = "git";
 
 let outputChannel: vscode.OutputChannel | undefined;
 
@@ -21,7 +22,7 @@ export function log(message: string) {
 export async function getRepoRoot(cwd: string): Promise<string | undefined> {
   try {
     const { stdout } = await execFileAsync(
-      "git",
+      GIT_BIN,
       ["rev-parse", "--show-toplevel"],
       { cwd },
     );
@@ -29,7 +30,7 @@ export async function getRepoRoot(cwd: string): Promise<string | undefined> {
     log(`Found repo root: ${root} for cwd: ${cwd}`);
     return root;
   } catch (e: any) {
-    log(`getRepoRoot failed for ${cwd}: ${e.message}`);
+    log(`getRepoRoot failed: ${e.message}`);
     return undefined;
   }
 }
@@ -37,15 +38,15 @@ export async function getRepoRoot(cwd: string): Promise<string | undefined> {
 export async function getCurrentBranch(cwd: string): Promise<string | undefined> {
   try {
     const { stdout } = await execFileAsync(
-      "git",
+      GIT_BIN,
       ["rev-parse", "--abbrev-ref", "HEAD"],
       { cwd },
     );
     const branch = stdout.trim();
-    log(`Current branch for ${cwd}: ${branch}`);
+    log(`Current branch: ${branch}`);
     return branch;
   } catch (e: any) {
-    log(`getCurrentBranch failed for ${cwd}: ${e.message}`);
+    log(`getCurrentBranch failed: ${e.message}`);
     return undefined;
   }
 }
@@ -53,7 +54,7 @@ export async function getCurrentBranch(cwd: string): Promise<string | undefined>
 export async function getRecentCommits(cwd: string): Promise<string[]> {
   try {
     const { stdout } = await execFileAsync(
-      "git",
+      GIT_BIN,
       ["log", "-n", "10", "--pretty=format:%h - %s (%cr)"],
       { cwd },
     );
@@ -68,7 +69,7 @@ export async function getGitStatus(
   cwd: string,
 ): Promise<{ path: string; staged: string; unstaged: string }[]> {
   try {
-    const { stdout } = await execFileAsync("git", ["status", "--porcelain"], {
+    const { stdout } = await execFileAsync(GIT_BIN, ["status", "--porcelain"], {
       cwd,
     });
     return stdout
@@ -86,41 +87,77 @@ export async function getGitStatus(
 }
 
 export async function stageFile(cwd: string, filePath: string) {
-  log(`Staging: ${filePath}`);
-  await execFileAsync("git", ["add", filePath], { cwd });
+  try {
+    log(`Staging: ${filePath}`);
+    await execFileAsync(GIT_BIN, ["add", "--", filePath], { cwd });
+  } catch (error: any) {
+    const msg = `Failed to stage ${filePath}: ${error.stderr || error.message}`;
+    log(msg);
+    vscode.window.showErrorMessage(msg);
+  }
 }
 
 export async function unstageFile(cwd: string, filePath: string) {
-  log(`Unstaging: ${filePath}`);
-  await execFileAsync("git", ["reset", "HEAD", "--", filePath], { cwd });
+  try {
+    log(`Unstaging: ${filePath}`);
+    await execFileAsync(GIT_BIN, ["reset", "HEAD", "--", filePath], { cwd });
+  } catch (error: any) {
+    const msg = `Failed to unstage ${filePath}: ${error.stderr || error.message}`;
+    log(msg);
+    vscode.window.showErrorMessage(msg);
+  }
 }
 
 export async function discardChange(cwd: string, filePath: string, status: string) {
-  log(`Discarding: ${filePath} (status: ${status})`);
-  if (status === "??" || status === "?") {
-    const fullPath = path.isAbsolute(filePath)
-      ? filePath
-      : path.join(cwd, filePath);
-    await vscode.workspace.fs.delete(vscode.Uri.file(fullPath));
-  } else {
-    await execFileAsync("git", ["checkout", "--", filePath], { cwd });
+  try {
+    log(`Discarding: ${filePath} (status: ${status})`);
+    if (status === "??" || status === "?") {
+      const fullPath = path.isAbsolute(filePath)
+        ? filePath
+        : path.join(cwd, filePath);
+      await vscode.workspace.fs.delete(vscode.Uri.file(fullPath));
+    } else {
+      await execFileAsync(GIT_BIN, ["checkout", "--", filePath], { cwd });
+    }
+  } catch (error: any) {
+    const msg = `Failed to discard ${filePath}: ${error.stderr || error.message}`;
+    log(msg);
+    vscode.window.showErrorMessage(msg);
   }
 }
 
 export async function stageAll(cwd: string) {
-  log("Staging all changes");
-  await execFileAsync("git", ["add", "."], { cwd });
+  try {
+    log("Staging all changes");
+    await execFileAsync(GIT_BIN, ["add", "."], { cwd });
+  } catch (error: any) {
+    const msg = `Failed to stage all: ${error.stderr || error.message}`;
+    log(msg);
+    vscode.window.showErrorMessage(msg);
+  }
 }
 
 export async function unstageAll(cwd: string) {
-  log("Unstaging all changes");
-  await execFileAsync("git", ["reset"], { cwd });
+  try {
+    log("Unstaging all changes");
+    await execFileAsync(GIT_BIN, ["reset"], { cwd });
+  } catch (error: any) {
+    const msg = `Failed to unstage all: ${error.stderr || error.message}`;
+    log(msg);
+    vscode.window.showErrorMessage(msg);
+  }
 }
 
 export async function discardAll(cwd: string) {
-  log("Discarding all changes");
-  await execFileAsync("git", ["checkout", "."], { cwd });
-  await execFileAsync("git", ["clean", "-fd"], { cwd });
+  try {
+    log("Discarding all changes");
+    await execFileAsync(GIT_BIN, ["checkout", "."], { cwd });
+    await execFileAsync(GIT_BIN, ["clean", "-fd"], { cwd });
+  } catch (error: any) {
+    const msg = `Failed to discard all: ${error.stderr || error.message}`;
+    log(msg);
+    vscode.window.showErrorMessage(msg);
+  }
 }
 
 export async function pushToRemote(cwd: string) {
@@ -133,15 +170,14 @@ export async function pushToRemote(cwd: string) {
         cancellable: false,
       },
       async () => {
-        await execFileAsync("git", ["push"], { cwd });
+        await execFileAsync(GIT_BIN, ["push"], { cwd });
       },
     );
     vscode.window.showInformationMessage("Successfully pushed to remote!");
   } catch (error: any) {
-    log(`Push failed: ${error.stderr || error.message}`);
-    vscode.window.showErrorMessage(
-      "Push failed: " + (error.stderr || error.message),
-    );
+    const msg = `Push failed: ${error.stderr || error.message}`;
+    log(msg);
+    vscode.window.showErrorMessage(msg);
   }
 }
 
@@ -152,6 +188,16 @@ export async function executeGitCommit(
   targetCwd?: string,
 ) {
   try {
+    // Basic date validation
+    if (isNaN(Date.parse(authorDate.replace(" ", "T")))) {
+      vscode.window.showErrorMessage("Invalid author date format.");
+      return;
+    }
+    if (isNaN(Date.parse(committerDate.replace(" ", "T")))) {
+      vscode.window.showErrorMessage("Invalid committer date format.");
+      return;
+    }
+
     let cwd = targetCwd;
     if (!cwd) {
       const activeEditor = vscode.window.activeTextEditor;
@@ -182,7 +228,7 @@ export async function executeGitCommit(
           GIT_AUTHOR_DATE: authorDate,
           GIT_COMMITTER_DATE: committerDate,
         };
-        await execFileAsync("git", ["commit", "-m", commitMessage], {
+        await execFileAsync(GIT_BIN, ["commit", "-m", commitMessage], {
           cwd: root,
           env,
         });
@@ -194,8 +240,8 @@ export async function executeGitCommit(
     const msg =
       error.stdout && error.stdout.includes("nothing to commit")
         ? "Nothing to commit. Check if you have staged changes."
-        : error.message || "Unknown Git error";
-    log(`Commit failed: ${msg}`);
+        : `Commit failed: ${error.stderr || error.message}`;
+    log(msg);
     vscode.window.showErrorMessage(msg);
   }
 }
