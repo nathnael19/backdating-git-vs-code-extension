@@ -19,7 +19,7 @@ import { getHtmlForWebview } from "./webviewHtml";
 
 export class BackdatingGitSidebarProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
-  private _refreshInterval?: any;
+  private _refreshInterval?: ReturnType<typeof setInterval>;
   private _lastValidRoot?: string;
 
   constructor(private readonly _extensionUri: vscode.Uri) {}
@@ -27,10 +27,7 @@ export class BackdatingGitSidebarProvider implements vscode.WebviewViewProvider 
   public async resolveWebviewView(webviewView: vscode.WebviewView) {
     this._view = webviewView;
     webviewView.webview.options = { enableScripts: true };
-    webviewView.webview.html = getHtmlForWebview(
-      webviewView.webview,
-      this._extensionUri,
-    );
+    webviewView.webview.html = getHtmlForWebview();
 
     webviewView.webview.onDidReceiveMessage(async (data) => {
       const root = await this._getRepoRootForSelection();
@@ -165,8 +162,8 @@ export class BackdatingGitSidebarProvider implements vscode.WebviewViewProvider 
             if (root) return root;
           }
         }
-      } catch (e) {
-        log(`Scan failed for ${folder.name}: ${e}`);
+      } catch (e: unknown) {
+        log(`Scan failed for ${folder.name}: ${(e as Error).message}`);
       }
     }
 
