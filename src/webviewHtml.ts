@@ -499,6 +499,18 @@ export function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.
         const commitButton = document.getElementById('commitButton');
         const commitMessageInput = document.getElementById('msg');
 
+        function escapeHtml(text) {
+          if (!text) return "";
+          const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+          };
+          return text.replace(/[&<>"']/g, function(m) { return map[m]; });
+        }
+
         function updateCommitButtonState(hasChanges) {
           const msg = commitMessageInput.value.trim();
           commitButton.disabled = !msg || !hasChanges;
@@ -584,8 +596,8 @@ export function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.
               const msg = metaMatch ? rest.replace(metaMatch[0], '').trim() : rest;
               
               return '<div class="history-item">' +
-                '<div><span class="history-hash">' + hash + '</span>' + msg + '</div>' +
-                '<span class="history-meta">' + meta + '</span>' +
+                '<div><span class="history-hash">' + escapeHtml(hash) + '</span>' + escapeHtml(msg) + '</div>' +
+                '<span class="history-meta">' + escapeHtml(meta) + '</span>' +
               '</div>';
             }).join('') : '<div class="empty-state">Timeline empty</div>';
 
@@ -613,10 +625,12 @@ export function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.
             discardBtn = '<span class="action-icon codicon codicon-discard" title="Discard" onclick="event.stopPropagation(); discard(\\'' + s.path + '\\', \\'' + (s.staged === '?' ? '??' : s.unstaged) + '\\')"></span>';
           }
 
+          const escapedPath = escapeHtml(s.path);
+
           return '<div class="file-item" onclick="openFile(\\'' + s.path + '\\')">' +
               '<div class="status-dot ' + statusClass + '"></div>' +
               '<div class="file-info">' +
-                '<span class="file-name">' + s.path + '</span>' +
+                '<span class="file-name">' + escapedPath + '</span>' +
               '</div>' +
               '<div class="file-actions">' +
                 '<span class="action-icon codicon codicon-go-to-file" title="Open" onclick="event.stopPropagation(); openFile(\\'' + s.path + '\\')"></span>' +
