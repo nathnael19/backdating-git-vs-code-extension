@@ -82,9 +82,9 @@ export class BackdatingGitSidebarProvider implements vscode.WebviewViewProvider 
           break;
         case "discardAll": {
           const confirmAll = await vscode.window.showWarningMessage(
-            "Are you sure you want to discard ALL changes?",
+            "CRITICAL: This will PERMANENTLY discard ALL changes in the repository. This action cannot be undone.",
             { modal: true },
-            "Discard All",
+            "Discard All Changes",
           );
           if (confirmAll) {
             await discardAll(root!);
@@ -120,7 +120,7 @@ export class BackdatingGitSidebarProvider implements vscode.WebviewViewProvider 
       if (this._view?.visible) {
         this._refreshAll();
       }
-    }, 10000);
+    }, 30000);
 
     webviewView.onDidChangeVisibility(() => {
       if (this._view?.visible) {
