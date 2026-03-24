@@ -1,497 +1,191 @@
-import * as vscode from "vscode";
 
-export function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.Uri): string {
+export function getHtmlForWebview(): string {
   const now = new Date();
   const tzOffset = now.getTimezoneOffset() * 60000;
   const localISOTime = new Date(now.getTime() - tzOffset)
     .toISOString()
     .slice(0, 16);
 
-  const codiconsUri = webview.asWebviewUri(
-    vscode.Uri.joinPath(
-      extensionUri,
-      "node_modules",
-      "@vscode/codicons",
-      "dist",
-      "codicon.css",
-    ),
-  );
-
   return `<!DOCTYPE html>
-    <html lang="en">
+    <html class="dark" lang="en">
     <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <link href="${codiconsUri}" rel="stylesheet" />
+      <meta charset="utf-8"/>
+      <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+      <title>Backdating Git VS Code Extension</title>
+      <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+      <script>
+        tailwind.config = {
+          darkMode: 'class',
+          theme: {
+            extend: {
+              colors: {
+                vscode: {
+                  bg: '#0d1117',
+                  border: '#30363d',
+                  card: '#161b22',
+                  input: '#0d1117',
+                  text: '#c9d1d9',
+                  muted: '#8b949e',
+                  accent: '#238636',
+                  hover: '#21262d',
+                  highlight: '#f2cc60',
+                  button: '#21262d'
+                }
+              }
+            }
+          }
+        }
+      </script>
       <style>
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@500&display=swap');
 
-        :root {
-          --bg-oled: #05070A;
-          --glass-bg: rgba(255, 255, 255, 0.03);
-          --glass-border: rgba(255, 255, 255, 0.08);
-          --accent: #C5A028;
-          --accent-glow: rgba(197, 160, 40, 0.15);
-          --success: #22C55E;
-          --text-primary: #F8FAFC;
-          --text-secondary: #94A3B8;
-          --input-bg: rgba(0, 0, 0, 0.2);
-          
-          --mod-fg: #E2C08D;
-          --add-fg: #81B88B;
-          --del-fg: #C74E39;
-          --unt-fg: #73C991;
+        ::-webkit-scrollbar { width: 10px; }
+        ::-webkit-scrollbar-track { background: #0d1117; }
+        ::-webkit-scrollbar-thumb { background: #30363d; border-radius: 5px; }
+        ::-webkit-scrollbar-thumb:hover { background: #484f58; }
 
-          --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        body {
-          font-family: 'DM Sans', var(--vscode-font-family), sans-serif;
-          color: var(--text-primary);
-          background-color: var(--bg-oled);
-          background-image: 
-            radial-gradient(circle at top right, rgba(197, 160, 40, 0.05), transparent 400px),
-            radial-gradient(circle at bottom left, rgba(34, 197, 94, 0.03), transparent 400px);
-          padding: 14px;
-          font-size: 13px;
-          line-height: 1.6;
-          overflow-x: hidden;
-          margin: 0;
-        }
-
-        .container {
-          display: flex;
-          flex-direction: column;
-          gap: 16px;
-          animation: fadeIn 0.4s ease-out;
-        }
-
-        @keyframes fadeIn {
-          from { opacity: 0; transform: translateY(10px); }
-          to { opacity: 1; transform: translateY(0); }
-        }
-
-        .glass-card {
-          background: var(--glass-bg);
-          backdrop-filter: blur(16px);
-          -webkit-backdrop-filter: blur(16px);
-          border: 1px solid var(--glass-border);
+        .custom-card {
+          border: 1px solid #30363d;
           border-radius: 12px;
-          padding: 12px;
-          box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
-          transition: var(--transition);
+          padding: 16px;
+          background: #161b22;
         }
-
-        .glass-card:hover {
-          border-color: rgba(197, 160, 40, 0.2);
-          box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
-        }
-
-        .section-header {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 8px;
-        }
-
-        h3 {
-          margin: 0;
-          font-size: 10px;
+        .badge {
+          background-color: rgba(242, 204, 96, 0.1);
+          color: #f2cc60;
+          font-size: 11px;
+          font-weight: 600;
+          padding: 4px 10px;
+          border-radius: 12px;
           text-transform: uppercase;
-          letter-spacing: 0.1em;
-          font-weight: 700;
-          color: var(--text-secondary);
+          letter-spacing: 0.05em;
         }
-
-        .header-pill {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          background: rgba(255, 255, 255, 0.04);
-          padding: 4px 10px;
-          border-radius: 20px;
-          border: 1px solid var(--glass-border);
-        }
-
-        .repo-info {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-bottom: 4px;
-          padding: 0 4px;
-        }
-
-        .repo-path {
-          font-size: 11px;
-          color: var(--text-secondary);
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          max-width: 60%;
-        }
-
-        .branch-tag {
-          font-size: 10px;
-          font-weight: 600;
-          color: var(--accent);
-          background: var(--accent-glow);
-          padding: 2px 8px;
-          border-radius: 6px;
-          display: flex;
-          align-items: center;
-          gap: 4px;
-        }
-
-        textarea, input[type="datetime-local"] { 
-          width: 100%; 
-          box-sizing: border-box; 
-          background: var(--input-bg); 
-          color: var(--text-primary); 
-          border: 1px solid var(--glass-border); 
-          border-radius: 8px; 
-          padding: 10px; 
-          font-family: inherit; 
-          font-size: 13px;
-          transition: var(--transition);
-        }
-
-        textarea:focus, input:focus { 
-          outline: none; 
-          border-color: var(--accent);
-          background: rgba(255, 255, 255, 0.05);
-          box-shadow: 0 0 0 3px var(--accent-glow);
-        }
-
-        textarea { min-height: 80px; resize: none; }
-
-        .btn-group {
-          display: flex;
-          gap: 8px;
-          margin-top: 4px;
-        }
-
-        .btn {
-          cursor: pointer;
-          border: none;
-          border-radius: 8px;
-          padding: 10px 16px;
-          font-weight: 600;
-          font-size: 13px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          gap: 8px;
-          transition: var(--transition);
-          font-family: inherit;
-        }
-
-        .btn-primary {
-          background: linear-gradient(135deg, var(--accent), #9A7B1D);
-          color: white;
-          box-shadow: 0 4px 15px rgba(197, 160, 40, 0.3);
-        }
-        
-        /* Only stretch primary buttons when in a group */
-        .btn-group .btn-primary {
-          flex: 1;
-        }
-
-        .btn-primary:hover {
-          transform: translateY(-2px);
-          box-shadow: 0 6px 20px rgba(197, 160, 40, 0.4);
-        }
-
-        .btn-primary:active { transform: translateY(0); }
-
-        .btn-primary:disabled {
-          background: var(--glass-border);
-          color: var(--text-secondary);
-          cursor: not-allowed;
-          transform: none;
-          box-shadow: none;
-        }
-
-        .btn-outline {
-          background: transparent;
-          border: 1px solid var(--accent);
-          color: var(--accent);
-          padding: 8px;
-        }
-
-        .btn-outline:hover {
-          background: var(--accent-glow);
-        }
-
-        .action-icon {
-          cursor: pointer;
-          opacity: 0.6;
-          transition: var(--transition);
-          padding: 4px;
-          border-radius: 4px;
-        }
-
-        .action-icon:hover {
-          opacity: 1;
-          background: rgba(255, 255, 255, 0.1);
-          color: var(--accent);
-        }
-
-        .presets {
-          display: flex;
-          gap: 6px;
-          overflow-x: auto;
-          padding-bottom: 4px;
-          margin-bottom: 12px;
-          scrollbar-width: none;
-        }
-
-        .presets::-webkit-scrollbar { display: none; }
-
-        .preset-chip {
-          white-space: nowrap;
-          background: rgba(255, 255, 255, 0.05);
-          border: 1px solid var(--glass-border);
-          color: var(--text-secondary);
-          padding: 4px 10px;
-          border-radius: 12px;
-          font-size: 11px;
-          cursor: pointer;
-          transition: var(--transition);
-        }
-
-        .preset-chip:hover {
-          background: var(--accent-glow);
-          border-color: var(--accent);
-          color: var(--accent);
-        }
-
-        .switch-container {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          margin-top: 10px;
-          padding: 4px;
-        }
-
-        .switch {
-          position: relative;
-          display: inline-block;
-          width: 34px;
-          height: 18px;
-        }
-
-        .switch input { opacity: 0; width: 0; height: 0; }
-
-        .slider {
-          position: absolute;
-          cursor: pointer;
-          top: 0; left: 0; right: 0; bottom: 0;
-          background-color: rgba(255, 255, 255, 0.1);
-          transition: .4s;
-          border-radius: 18px;
-        }
-
-        .slider:before {
-          position: absolute;
-          content: "";
-          height: 14px; width: 14px;
-          left: 2px; bottom: 2px;
-          background-color: white;
-          transition: .4s;
-          border-radius: 50%;
-        }
-
-        input:checked + .slider { background-color: var(--success); }
-        input:checked + .slider:before { transform: translateX(16px); }
-
         .file-item {
           display: flex;
           align-items: center;
-          padding: 6px 8px;
-          border-radius: 8px;
-          gap: 10px;
+          padding: 6px 0;
+          font-size: 13px;
           cursor: pointer;
-          transition: var(--transition);
+          transition: all 0.2s;
+          position: relative;
         }
-
         .file-item:hover {
-          background: rgba(255, 255, 255, 0.04);
+          color: #f2cc60;
         }
-
-        .status-dot {
-          width: 8px;
+        .dot {
           height: 8px;
+          width: 8px;
           border-radius: 50%;
+          display: inline-block;
+          margin-right: 12px;
           flex-shrink: 0;
         }
 
-        .S-M, .U-M { background-color: var(--mod-fg); box-shadow: 0 0 8px var(--mod-fg); }
-        .S-A, .U-A { background-color: var(--add-fg); box-shadow: 0 0 8px var(--add-fg); }
-        .S-D, .U-D { background-color: var(--del-fg); box-shadow: 0 0 8px var(--del-fg); }
-        .S-?, .U-? { background-color: var(--unt-fg); box-shadow: 0 0 8px var(--unt-fg); }
-
-        .file-info {
-          flex: 1;
-          min-width: 0;
-        }
-
-        .file-name {
-          font-size: 12px;
-          font-weight: 500;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          display: block;
-        }
-
-        .file-actions {
-          display: flex;
-          gap: 4px;
-          opacity: 0;
-          transition: var(--transition);
-        }
-
-        .file-item:hover .file-actions { opacity: 1; }
-
-        .history-item {
-          padding: 8px;
-          border-bottom: 1px solid var(--glass-border);
-          font-size: 11px;
-        }
-
-        .history-item:last-child { border-bottom: none; }
-
-        .history-hash {
-          color: var(--accent);
-          font-weight: 700;
-          font-family: 'JetBrains Mono', monospace;
-          margin-right: 6px;
-        }
-
-        .history-meta {
-          display: block;
-          font-size: 10px;
-          color: var(--text-secondary);
-          margin-top: 2px;
-        }
-
-        .empty-state {
-          text-align: center;
-          padding: 20px 10px;
-          color: var(--text-secondary);
-          font-size: 11px;
-          font-style: italic;
-        }
-
-        .no-repo-view {
-          display: flex;
-          flex-direction: column;
-          align-items: center;
-          justify-content: center;
-          height: 80vh;
-          text-align: center;
-          padding: 24px;
-          gap: 16px;
-        }
-
-        .no-repo-icon {
-          font-size: 48px;
-          color: var(--text-secondary);
-          opacity: 0.3;
-        }
+        .dot-mod { background-color: #E2C08D; box-shadow: 0 0 4px #E2C08D; }
+        .dot-add { background-color: #81B88B; box-shadow: 0 0 4px #81B88B; }
+        .dot-del { background-color: #C74E39; box-shadow: 0 0 4px #C74E39; }
+        .dot-unt { background-color: #73C991; box-shadow: 0 0 4px #73C991; }
 
         .hidden { display: none !important; }
+
+        input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+          filter: invert(1);
+          cursor: pointer;
+        }
+
+        .action-btn {
+          opacity: 0;
+          transition: opacity 0.2s;
+        }
+        .file-item:hover .action-btn { opacity: 1; }
+
+        .dot-main { background-color: #f2cc60; box-shadow: 0 0 4px #f2cc60; }
       </style>
     </head>
-    <body>
-      <div id="main-view" class="container">
-        <div class="repo-info">
-          <div class="repo-path" id="currentRepo">Discovering...</div>
-          <div id="branchPill" class="branch-tag hidden">
-            <span class="codicon codicon-git-branch"></span>
-            <span id="currentBranchName"></span>
+    <body class="bg-vscode-bg text-vscode-text font-sans antialiased">
+      <div id="main-view" class="max-w-[585px] mx-auto p-4 min-h-screen">
+        <header class="flex justify-between items-center mb-6 text-xs text-vscode-muted px-2">
+          <div class="truncate" id="currentRepo">Discovering...</div>
+          <div id="branchPill" class="flex items-center bg-black/30 px-2 py-1 rounded border border-vscode-border hidden">
+            <svg class="w-3 h-3 text-vscode-highlight mr-1" fill="currentColor" viewbox="0 0 24 24"><path d="M15 11c0-1.1-.9-2-2-2h-1V7h1c1.66 0 3 1.34 3 3v2h2v-2c0-2.76-2.24-5-5-5h-1V1h-2v2h-1c-2.76 0-5 2.24-5 5v12c0 2.76 2.24 5 5 5h1v2h2v-2h1c2.76 0 5-2.24 5-5v-2h-2v2c0 1.1-.9 2-2 2h-1v-2h1c1.1 0 2-.9 2-2zM9 8c0-1.1.9-2 2-2h1v2h-1c-1.1 0-2 .9-2 2z"></path></svg>
+            <span class="text-vscode-highlight font-bold" id="currentBranchName"></span>
+          </div>
+        </header>
+
+        <div class="custom-card mb-6">
+          <div class="mb-6">
+            <div class="flex justify-between items-center mb-4">
+              <span class="badge">Staged Changes</span>
+              <button class="text-vscode-muted hover:text-white transition-colors" onclick="unstageAll()" title="Unstage All">
+                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+              </button>
+            </div>
+            <div id="staged-files"></div>
+          </div>
+
+          <div>
+            <div class="flex justify-between items-center mb-4">
+              <span class="badge">Unstaged Changes</span>
+              <div class="flex gap-4 text-vscode-muted">
+                <button class="hover:text-white transition-colors" onclick="discardAll()" title="Discard All">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+                </button>
+                <button class="hover:text-white transition-colors" onclick="stageAll()" title="Stage All">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+                </button>
+              </div>
+            </div>
+            <div id="unstaged-files"></div>
           </div>
         </div>
 
-        <div class="glass-card">
-          <div class="section-header">
-            <div class="header-pill">
-              <h3>Staged Changes</h3>
-            </div>
-            <span class="action-icon codicon codicon-remove-all" title="Unstage All" onclick="unstageAll()"></span>
+        <div class="custom-card mb-6">
+          <div class="mb-4">
+            <span class="badge">Commit Details</span>
           </div>
-          <div id="staged-files"></div>
+          <textarea id="msg" class="w-full bg-vscode-input border border-vscode-border rounded-lg p-3 text-sm focus:ring-1 focus:ring-vscode-highlight focus:border-vscode-highlight outline-none h-24 mb-4 text-vscode-text" placeholder="Summarize your changes..."></textarea>
           
-          <div class="section-header" style="margin-top: 16px;">
-            <div class="header-pill">
-              <h3>Unstaged Changes</h3>
+          <div class="flex flex-wrap gap-2 mb-6">
+            <button class="px-3 py-1.5 bg-vscode-button border border-vscode-border rounded-lg text-xs hover:bg-vscode-hover hover:border-vscode-highlight transition-all" onclick="setPreset(1)">Yesterday</button>
+            <button class="px-3 py-1.5 bg-vscode-button border border-vscode-border rounded-lg text-xs hover:bg-vscode-hover hover:border-vscode-highlight transition-all" onclick="setPreset(7)">1 week ago</button>
+            <button class="px-3 py-1.5 bg-vscode-button border border-vscode-border rounded-lg text-xs hover:bg-vscode-hover hover:border-vscode-highlight transition-all" onclick="setPreset(30)">1 month ago</button>
+            <button class="px-3 py-1.5 bg-vscode-button border border-vscode-border rounded-lg text-xs hover:bg-vscode-hover hover:border-vscode-highlight transition-all" onclick="setPreset(365)">1 year ago</button>
+          </div>
+
+          <div class="mb-2">
+            <label class="block text-xs text-vscode-muted mb-2">Target Date</label>
+            <div class="relative">
+              <input id="targetDate" class="w-full bg-vscode-input border border-vscode-border rounded-lg p-3 text-sm focus:ring-1 focus:ring-vscode-highlight focus:border-vscode-highlight outline-none" type="datetime-local" value="${localISOTime}"/>
             </div>
-            <div style="display: flex; gap: 8px;">
-              <span class="action-icon codicon codicon-discard" title="Discard All" onclick="discardAll()"></span>
-              <span class="action-icon codicon codicon-add" title="Stage All" onclick="stageAll()"></span>
-            </div>
-          </div>
-          <div id="unstaged-files"></div>
-        </div>
-
-        <div class="glass-card">
-          <div class="header-pill" style="margin-bottom: 12px; width: fit-content;">
-            <h3>Commit Details</h3>
-          </div>
-          <textarea id="msg" placeholder="Summarize your changes..."></textarea>
-          
-          <div class="presets">
-            <div class="preset-chip" onclick="setPreset(1)">Yesterday</div>
-            <div class="preset-chip" onclick="setPreset(7)">1 week ago</div>
-            <div class="preset-chip" onclick="setPreset(30)">1 month ago</div>
-            <div class="preset-chip" onclick="setPreset(365)">1 year ago</div>
-          </div>
-
-          <div style="margin-bottom: 8px;">
-            <label style="font-size: 10px; color: var(--text-secondary); margin-left: 4px; display: block; margin-bottom: 4px;">Author Date</label>
-            <input type="datetime-local" id="authorDate" value="${localISOTime}">
-          </div>
-
-          <div id="committerDateGroup" class="hidden" style="margin-bottom: 8px;">
-            <label style="font-size: 10px; color: var(--text-secondary); margin-left: 4px; display: block; margin-bottom: 4px;">Committer Date</label>
-            <input type="datetime-local" id="committerDate" value="${localISOTime}">
-          </div>
-
-          <div class="switch-container">
-            <span style="font-size: 11px; color: var(--text-secondary);">Sync Committer Date</span>
-            <label class="switch">
-              <input type="checkbox" id="syncDate" checked onchange="toggleCommitter()">
-              <span class="slider"></span>
-            </label>
           </div>
         </div>
 
-        <div class="btn-group">
-          <button class="btn btn-primary" id="commitButton" onclick="doCommit()">
-            <span class="codicon codicon-check"></span>
+        <div class="flex gap-2 mb-8">
+          <button id="commitButton" class="flex-grow bg-vscode-button border border-vscode-border hover:bg-vscode-hover hover:border-vscode-highlight text-blue-400 font-bold py-3 rounded-lg flex items-center justify-center gap-2 transition-all disabled:opacity-50 disabled:cursor-not-allowed" onclick="doCommit()">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M5 13l4 4L19 7" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
             Backdate Commit
           </button>
-          <button class="btn btn-outline" title="Push to Remote" onclick="pushToRemote()">
-            <span class="codicon codicon-cloud-upload"></span>
+          <button class="w-14 bg-vscode-button border border-vscode-border hover:bg-vscode-hover hover:border-vscode-highlight flex items-center justify-center rounded-lg text-vscode-highlight transition-all" onclick="pushToRemote()" title="Push to Remote">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
           </button>
         </div>
 
-        <div class="glass-card">
-          <div class="section-header">
-            <div class="header-pill">
-              <h3>Recent Timeline</h3>
-            </div>
-            <span class="action-icon codicon codicon-refresh" title="Refresh" onclick="refreshStatus()"></span>
+        <div class="custom-card mb-6">
+          <div class="flex justify-between items-center mb-6">
+            <span class="badge">Recent Timeline</span>
+            <button class="text-vscode-muted hover:text-white transition-colors" onclick="refreshStatus()">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+            </button>
           </div>
-          <div id="historyList"></div>
+          <div id="historyList" class="space-y-6"></div>
         </div>
       </div>
 
-      <div id="no-repo-view" class="no-repo-view hidden">
-        <span class="no-repo-icon codicon codicon-source-control"></span>
-        <div style="font-weight: 700; font-size: 16px;">No Repository Found</div>
-        <div style="color: var(--text-secondary); font-size: 12px;">Open a file from a Git repository to enable backdating features.</div>
-        <button class="btn btn-primary" style="margin-top: 8px;" onclick="refreshStatus()">Retry Discovery</button>
+      <div id="no-repo-view" class="flex flex-col items-center justify-center min-h-screen p-8 text-center hidden">
+        <svg class="w-16 h-16 text-vscode-muted opacity-30 mb-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 11c0-1.1-.9-2-2-2h-1V7h1c1.66 0 3 1.34 3 3v2h2v-2c0-2.76-2.24-5-5-5h-1V1h-2v2h-1c-2.76 0-5 2.24-5 5v12c0 2.76 2.24 5 5 5h1v2h2v-2h1c2.76 0 5-2.24 5-5v-2h-2v2c0 1.1-.9 2-2 2h-1v-2h1c1.1 0 2-.9 2-2zM9 8c0-1.1.9-2 2-2h1v2h-1c-1.1 0-2 .9-2 2z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg>
+        <div class="text-lg font-bold mb-2">No Repository Found</div>
+        <div class="text-sm text-vscode-muted mb-6 px-4">Open a file from a Git repository or initialize one to enable backdating features.</div>
+        <button class="px-6 py-3 bg-vscode-button border border-vscode-border rounded-lg text-vscode-highlight hover:bg-vscode-hover transition-all" onclick="refreshStatus()">Retry Discovery</button>
       </div>
 
       <script>
@@ -501,13 +195,7 @@ export function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.
 
         function escapeHtml(text) {
           if (!text) return "";
-          const map = {
-            '&': '&amp;',
-            '<': '&lt;',
-            '>': '&gt;',
-            '"': '&quot;',
-            "'": '&#039;'
-          };
+          const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
           return text.replace(/[&<>"']/g, function(m) { return map[m]; });
         }
 
@@ -515,19 +203,13 @@ export function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.
           const msg = commitMessageInput.value.trim();
           commitButton.disabled = !msg || !hasChanges;
         }
-        
-        function toggleCommitter() {
-          const sync = document.getElementById('syncDate').checked;
-          document.getElementById('committerDateGroup').classList.toggle('hidden', sync);
-        }
 
         function setPreset(days) {
           const date = new Date();
           date.setDate(date.getDate() - days);
           const tzOffset = date.getTimezoneOffset() * 60000;
           const formatted = new Date(date.getTime() - tzOffset).toISOString().slice(0, 16);
-          document.getElementById('authorDate').value = formatted;
-          document.getElementById('committerDate').value = formatted;
+          document.getElementById('targetDate').value = formatted;
         }
 
         function stage(file) { vscode.postMessage({ type: 'stage', file }); }
@@ -542,11 +224,10 @@ export function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.
 
         function doCommit() {
           const msg = commitMessageInput.value.trim();
-          const authorDate = document.getElementById('authorDate').value.replace('T', ' ') + ':00';
-          const sync = document.getElementById('syncDate').checked;
-          const committerDate = sync ? authorDate : document.getElementById('committerDate').value.replace('T', ' ') + ':00';
+          const target = document.getElementById('targetDate').value.replace('T', ' ') + ':00';
           if(!msg) return;
-          vscode.postMessage({ type: 'commit', message: msg, authorDate, committerDate });
+          // Send same date for author and committer as requested
+          vscode.postMessage({ type: 'commit', message: msg, authorDate: target, committerDate: target });
           commitMessageInput.value = '';
           updateCommitButtonState(false);
         }
@@ -583,8 +264,8 @@ export function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.
             const staged = status.filter(s => s.staged !== ' ' && s.staged !== '?');
             const unstaged = status.filter(s => s.unstaged !== ' ' || s.staged === '?');
 
-            stagedEl.innerHTML = staged.length ? staged.map(s => renderFileItem(s, true)).join('') : '<div class="empty-state">Nothing staged</div>';
-            unstagedEl.innerHTML = unstaged.length ? unstaged.map(s => renderFileItem(s, false)).join('') : '<div class="empty-state">No changes</div>';
+            stagedEl.innerHTML = staged.length ? staged.map(s => renderFileItem(s, true)).join('') : '<div class="text-vscode-muted text-sm italic text-center py-4">Nothing staged</div>';
+            unstagedEl.innerHTML = unstaged.length ? unstaged.map(s => renderFileItem(s, false)).join('') : '<div class="text-vscode-muted text-sm italic text-center py-4">No changes</div>';
 
             const histList = document.getElementById('historyList');
             histList.innerHTML = history.length > 0 ? history.map(h => {
@@ -595,11 +276,14 @@ export function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.
               const meta = metaMatch ? metaMatch[1] : '';
               const msg = metaMatch ? rest.replace(metaMatch[0], '').trim() : rest;
               
-              return '<div class="history-item">' +
-                '<div><span class="history-hash">' + escapeHtml(hash) + '</span>' + escapeHtml(msg) + '</div>' +
-                '<span class="history-meta">' + escapeHtml(meta) + '</span>' +
+              return '<div class="transition-all hover:translate-x-1">' +
+                '<div class="flex items-start gap-2 mb-1">' +
+                  '<span class="text-vscode-highlight font-mono text-sm font-bold">' + escapeHtml(hash) + '</span>' +
+                  '<p class="text-sm">' + escapeHtml(msg) + '</p>' +
+                '</div>' +
+                '<div class="text-xs text-vscode-muted">' + escapeHtml(meta) + '</div>' +
               '</div>';
-            }).join('') : '<div class="empty-state">Timeline empty</div>';
+            }).join('') : '<div class="text-vscode-muted text-xs text-center">Timeline empty</div>';
 
             const hasAnyChanges = staged.length > 0 || unstaged.length > 0;
             updateCommitButtonState(hasAnyChanges);
@@ -613,31 +297,24 @@ export function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.
 
         function renderFileItem(s, isStaged) {
           const statusChar = isStaged ? s.staged : (s.staged === '?' ? '?' : s.unstaged);
-          const statusClass = (isStaged ? 'S-' : 'U-') + statusChar;
+          let dotClass = 'dot-mod';
+          if (statusChar === 'A' || statusChar === '?') dotClass = 'dot-add';
+          if (statusChar === 'D') dotClass = 'dot-del';
           
-          let actionBtn = '';
-          let discardBtn = '';
-
+          let actions = '';
           if (isStaged) {
-            actionBtn = '<span class="action-icon codicon codicon-remove" title="Unstage" onclick="event.stopPropagation(); unstage(\\'' + s.path + '\\')"></span>';
+            actions = '<button class="action-btn text-vscode-muted hover:text-white transition-colors" title="Unstage" onclick="event.stopPropagation(); unstage(\\'' + s.path + '\\')"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg></button>';
           } else {
-            actionBtn = '<span class="action-icon codicon codicon-add" title="Stage" onclick="event.stopPropagation(); stage(\\'' + s.path + '\\')"></span>';
-            discardBtn = '<span class="action-icon codicon codicon-discard" title="Discard" onclick="event.stopPropagation(); discard(\\'' + s.path + '\\', \\'' + (s.staged === '?' ? '??' : s.unstaged) + '\\')"></span>';
+            actions = '<button class="action-btn text-vscode-muted hover:text-vscode-highlight transition-colors" title="Stage" onclick="event.stopPropagation(); stage(\\'' + s.path + '\\')"><svg class="w-4 h-4" fill="none" stroke="currentColor" viewbox="0 0 24 24"><path d="M12 4v16m8-8H4" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"></path></svg></button>';
           }
 
-          const escapedPath = escapeHtml(s.path);
-
-          return '<div class="file-item" onclick="openFile(\\'' + s.path + '\\')">' +
-              '<div class="status-dot ' + statusClass + '"></div>' +
-              '<div class="file-info">' +
-                '<span class="file-name">' + escapedPath + '</span>' +
-              '</div>' +
-              '<div class="file-actions">' +
-                '<span class="action-icon codicon codicon-go-to-file" title="Open" onclick="event.stopPropagation(); openFile(\\'' + s.path + '\\')"></span>' +
-                discardBtn +
-                actionBtn +
-              '</div>' +
-            '</div>';
+          return '<div class="file-item group" onclick="openFile(\\'' + s.path + '\\')">' +
+            '<span class="dot ' + dotClass + '"></span>' +
+            '<span class="flex-grow truncate">' + escapeHtml(s.path) + '</span>' +
+            '<div class="flex gap-2 items-center">' +
+              actions +
+            '</div>' +
+          '</div>';
         }
       </script>
     </body>
