@@ -3,7 +3,7 @@
   "displayName": "Backdating Git",
   "icon": "icon.png",
   "description": "Create Git commits with custom backdated timestamps.",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "publisher": "NathnaelNigussie",
   "repository": {
     "type": "git",
