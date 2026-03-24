@@ -29,8 +29,8 @@ export async function getRepoRoot(cwd: string): Promise<string | undefined> {
     const root = stdout.trim();
     log(`Found repo root: ${root} for cwd: ${cwd}`);
     return root;
-  } catch (e: any) {
-    log(`getRepoRoot failed: ${e.message}`);
+  } catch (e: unknown) {
+    log(`getRepoRoot failed: ${(e as Error).message}`);
     return undefined;
   }
 }
@@ -45,8 +45,8 @@ export async function getCurrentBranch(cwd: string): Promise<string | undefined>
     const branch = stdout.trim();
     log(`Current branch: ${branch}`);
     return branch;
-  } catch (e: any) {
-    log(`getCurrentBranch failed: ${e.message}`);
+  } catch (e: unknown) {
+    log(`getCurrentBranch failed: ${(e as Error).message}`);
     return undefined;
   }
 }
@@ -59,8 +59,8 @@ export async function getRecentCommits(cwd: string): Promise<string[]> {
       { cwd },
     );
     return stdout.split("\n").filter((line) => line.trim() !== "");
-  } catch (e: any) {
-    log(`getRecentCommits failed: ${e.message}`);
+  } catch (e: unknown) {
+    log(`getRecentCommits failed: ${(e as Error).message}`);
     return ["No commits found"];
   }
 }
@@ -80,8 +80,8 @@ export async function getGitStatus(
         unstaged: line.slice(1, 2).trim() || " ",
         path: line.slice(3).trim(),
       }));
-  } catch (e: any) {
-    log(`getGitStatus failed: ${e.message}`);
+  } catch (e: unknown) {
+    log(`getGitStatus failed: ${(e as Error).message}`);
     return [];
   }
 }
@@ -90,8 +90,9 @@ export async function stageFile(cwd: string, filePath: string) {
   try {
     log(`Staging: ${filePath}`);
     await execFileAsync(GIT_BIN, ["add", "--", filePath], { cwd });
-  } catch (error: any) {
-    const msg = `Failed to stage ${filePath}: ${error.stderr || error.message}`;
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    const msg = `Failed to stage ${filePath}: ${err.stderr || err.message}`;
     log(msg);
     vscode.window.showErrorMessage(msg);
   }
@@ -101,8 +102,9 @@ export async function unstageFile(cwd: string, filePath: string) {
   try {
     log(`Unstaging: ${filePath}`);
     await execFileAsync(GIT_BIN, ["reset", "HEAD", "--", filePath], { cwd });
-  } catch (error: any) {
-    const msg = `Failed to unstage ${filePath}: ${error.stderr || error.message}`;
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    const msg = `Failed to unstage ${filePath}: ${err.stderr || err.message}`;
     log(msg);
     vscode.window.showErrorMessage(msg);
   }
@@ -119,8 +121,9 @@ export async function discardChange(cwd: string, filePath: string, status: strin
     } else {
       await execFileAsync(GIT_BIN, ["checkout", "--", filePath], { cwd });
     }
-  } catch (error: any) {
-    const msg = `Failed to discard ${filePath}: ${error.stderr || error.message}`;
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    const msg = `Failed to discard ${filePath}: ${err.stderr || err.message}`;
     log(msg);
     vscode.window.showErrorMessage(msg);
   }
@@ -130,8 +133,9 @@ export async function stageAll(cwd: string) {
   try {
     log("Staging all changes");
     await execFileAsync(GIT_BIN, ["add", "."], { cwd });
-  } catch (error: any) {
-    const msg = `Failed to stage all: ${error.stderr || error.message}`;
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    const msg = `Failed to stage all: ${err.stderr || err.message}`;
     log(msg);
     vscode.window.showErrorMessage(msg);
   }
@@ -141,8 +145,9 @@ export async function unstageAll(cwd: string) {
   try {
     log("Unstaging all changes");
     await execFileAsync(GIT_BIN, ["reset"], { cwd });
-  } catch (error: any) {
-    const msg = `Failed to unstage all: ${error.stderr || error.message}`;
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    const msg = `Failed to unstage all: ${err.stderr || err.message}`;
     log(msg);
     vscode.window.showErrorMessage(msg);
   }
@@ -153,8 +158,9 @@ export async function discardAll(cwd: string) {
     log("Discarding all changes");
     await execFileAsync(GIT_BIN, ["checkout", "."], { cwd });
     await execFileAsync(GIT_BIN, ["clean", "-fd"], { cwd });
-  } catch (error: any) {
-    const msg = `Failed to discard all: ${error.stderr || error.message}`;
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    const msg = `Failed to discard all: ${err.stderr || err.message}`;
     log(msg);
     vscode.window.showErrorMessage(msg);
   }
@@ -174,8 +180,9 @@ export async function pushToRemote(cwd: string) {
       },
     );
     vscode.window.showInformationMessage("Successfully pushed to remote!");
-  } catch (error: any) {
-    const msg = `Push failed: ${error.stderr || error.message}`;
+  } catch (error: unknown) {
+    const err = error as { stderr?: string; message?: string };
+    const msg = `Push failed: ${err.stderr || err.message}`;
     log(msg);
     vscode.window.showErrorMessage(msg);
   }
@@ -236,11 +243,12 @@ export async function executeGitCommit(
     );
 
     vscode.window.showInformationMessage(`Successfully backdated commit!`);
-  } catch (error: any) {
+  } catch (error: unknown) {
+    const err = error as { stdout?: string; stderr?: string; message?: string };
     const msg =
-      error.stdout && error.stdout.includes("nothing to commit")
+      err.stdout && err.stdout.includes("nothing to commit")
         ? "Nothing to commit. Check if you have staged changes."
-        : `Commit failed: ${error.stderr || error.message}`;
+        : `Commit failed: ${err.stderr || err.message}`;
     log(msg);
     vscode.window.showErrorMessage(msg);
   }
