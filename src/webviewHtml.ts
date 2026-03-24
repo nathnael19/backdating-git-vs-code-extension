@@ -383,8 +383,6 @@ export function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.
           font-style: italic;
         }
 
-        .hidden { display: none; }
-
         .no-repo-view {
           display: flex;
           flex-direction: column;
@@ -401,6 +399,8 @@ export function getHtmlForWebview(webview: vscode.Webview, extensionUri: vscode.
           color: var(--text-secondary);
           opacity: 0.3;
         }
+
+        .hidden { display: none !important; }
       </style>
     </head>
     <body>
