@@ -54,7 +54,7 @@ export function activate(context: vscode.ExtensionContext) {
     try {
       const { stdout } = await execFileAsync(
         "git",
-        ["log", "-n", "3", "--pretty=format:%h - %s (%cr)"],
+        ["log", "-n", "10", "--pretty=format:%h - %s (%cr)"],
         { cwd },
       );
       return stdout.split("\n").filter((line) => line.trim() !== "");
@@ -97,7 +97,7 @@ export function activate(context: vscode.ExtensionContext) {
 
   async function discardChange(cwd: string, filePath: string, status: string) {
     log(`Discarding: ${filePath} (status: ${status})`);
-    if (status === "??") {
+    if (status === "??" || status === "?") {
       const fullPath = path.isAbsolute(filePath)
         ? filePath
         : path.join(cwd, filePath);
@@ -342,7 +342,6 @@ export function activate(context: vscode.ExtensionContext) {
       const workspaceFolders = vscode.workspace.workspaceFolders;
       if (!workspaceFolders || workspaceFolders.length === 0) return undefined;
 
-      // 1. Try active editor directory
       const activeEditor = vscode.window.activeTextEditor;
       if (activeEditor) {
         const root = await getRepoRoot(
@@ -351,13 +350,11 @@ export function activate(context: vscode.ExtensionContext) {
         if (root) return root;
       }
 
-      // 2. Try workspace roots
       for (const folder of workspaceFolders) {
         const root = await getRepoRoot(folder.uri.fsPath);
         if (root) return root;
       }
 
-      // 3. Fallback: Scan subdirectories (for monorepos)
       log("Deep scanning workspace for .git folders...");
       for (const folder of workspaceFolders) {
         try {
@@ -396,7 +393,7 @@ export function activate(context: vscode.ExtensionContext) {
       }
     }
 
-    private async _getHtmlForWebview(webview: vscode.Webview) {
+    private async _getHtmlForWebview(webview: vscode.Webview): Promise<string> {
       const now = new Date();
       const tzOffset = now.getTimezoneOffset() * 60000;
       const localISOTime = new Date(now.getTime() - tzOffset)
@@ -417,335 +414,473 @@ export function activate(context: vscode.ExtensionContext) {
         <html lang="en">
         <head>
           <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <link href="${codiconsUri}" rel="stylesheet" />
           <style>
+            @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&display=swap');
+
             :root {
-              --bg: var(--vscode-sideBar-background);
-              --fg: var(--vscode-sideBar-foreground);
-              --input-bg: var(--vscode-input-background);
-              --btn-bg: var(--vscode-button-background);
-              --btn-hover: var(--vscode-button-hoverBackground);
-              --border: var(--vscode-widget-border);
-              --accent: var(--vscode-button-background);
-              --mod-fg: #e2c08d;
-              --add-fg: #81b88b;
-              --del-fg: #c74e39;
-              --unt-fg: #73c991;
+              --bg-oled: #05070A;
+              --glass-bg: rgba(255, 255, 255, 0.03);
+              --glass-border: rgba(255, 255, 255, 0.08);
+              --accent: #C5A028;
+              --accent-glow: rgba(197, 160, 40, 0.15);
+              --success: #22C55E;
+              --text-primary: #F8FAFC;
+              --text-secondary: #94A3B8;
+              --input-bg: rgba(0, 0, 0, 0.2);
+              
+              --mod-fg: #E2C08D;
+              --add-fg: #81B88B;
+              --del-fg: #C74E39;
+              --unt-fg: #73C991;
+
+              --transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
             }
+
             body {
-              font-family: var(--vscode-font-family);
-              color: var(--fg);
-              padding: 12px;
+              font-family: 'DM Sans', var(--vscode-font-family), sans-serif;
+              color: var(--text-primary);
+              background-color: var(--bg-oled);
+              background-image: 
+                radial-gradient(circle at top right, rgba(197, 160, 40, 0.05), transparent 400px),
+                radial-gradient(circle at bottom left, rgba(34, 197, 94, 0.03), transparent 400px);
+              padding: 14px;
               font-size: 13px;
-              line-height: 1.4;
+              line-height: 1.6;
               overflow-x: hidden;
-              background: linear-gradient(
-                145deg,
-                rgba(255, 255, 255, 0.02),
-                rgba(0, 0, 0, 0.15)
-              );
+              margin: 0;
             }
-            .surface {
-              border-radius: 10px;
-              border: 1px solid rgba(255, 255, 255, 0.04);
-              background-color: rgba(0, 0, 0, 0.35);
-              box-shadow:
-                0 18px 45px rgba(0, 0, 0, 0.55),
-                0 0 0 1px rgba(255, 255, 255, 0.03);
-              padding: 10px;
+
+            .container {
+              display: flex;
+              flex-direction: column;
+              gap: 16px;
+              animation: fadeIn 0.4s ease-out;
             }
-            .card {
-              background: radial-gradient(
-                circle at 0 0,
-                rgba(255, 255, 255, 0.07),
-                rgba(255, 255, 255, 0.01)
-              );
-              border: 1px solid rgba(255, 255, 255, 0.05);
-              border-radius: 10px;
-              padding: 10px 10px 8px;
-              margin-bottom: 10px;
-              backdrop-filter: blur(8px);
-              box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4);
+
+            @keyframes fadeIn {
+              from { opacity: 0; transform: translateY(10px); }
+              to { opacity: 1; transform: translateY(0); }
             }
+
+            .glass-card {
+              background: var(--glass-bg);
+              backdrop-filter: blur(16px);
+              -webkit-backdrop-filter: blur(16px);
+              border: 1px solid var(--glass-border);
+              border-radius: 12px;
+              padding: 12px;
+              box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+              transition: var(--transition);
+            }
+
+            .glass-card:hover {
+              border-color: rgba(197, 160, 40, 0.2);
+              box-shadow: 0 12px 40px rgba(0, 0, 0, 0.5);
+            }
+
             .section-header {
               display: flex;
               align-items: center;
               justify-content: space-between;
-              margin-bottom: 4px;
-              cursor: pointer;
-              user-select: none;
+              margin-bottom: 8px;
             }
+
             h3 {
               margin: 0;
-              font-size: 11px;
+              font-size: 10px;
               text-transform: uppercase;
-              letter-spacing: 0.12em;
-              opacity: 0.7;
-              pointer-events: none;
+              letter-spacing: 0.1em;
+              font-weight: 700;
+              color: var(--text-secondary);
             }
-            .section-title-pill {
-              padding: 2px 8px;
-              border-radius: 999px;
-              background: rgba(255, 255, 255, 0.03);
-              border: 1px solid rgba(255, 255, 255, 0.06);
-            }
-            .section-header:hover .section-title-pill {
-              border-color: rgba(255, 255, 255, 0.16);
-              background: rgba(255, 255, 255, 0.06);
-            }
-            .action-bar { display: flex; gap: 4px; }
-            textarea, input { 
-              width: 100%; box-sizing: border-box; background: var(--input-bg); color: var(--vscode-input-foreground); 
-              border: 1px solid var(--vscode-input-border); border-radius: 4px; padding: 8px; font-family: inherit; margin-bottom: 8px;
-            }
-            textarea { min-height: 60px; resize: none; transition: border-color 0.2s; }
-            textarea:focus { border-color: var(--accent); outline: none; }
-            .presets { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 4px; margin-bottom: 12px; }
-            .preset-btn { 
-              font-size: 10px; padding: 4px; border: 1px solid var(--border); background: transparent; 
-              color: var(--fg); border-radius: 4px; cursor: pointer; opacity: 0.8;
-            }
-            .preset-btn:hover { background: rgba(255,255,255,0.1); opacity: 1; }
-            .toggle-group { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-            .switch { position: relative; display: inline-block; width: 30px; height: 16px; }
-            .switch input { opacity: 0; width: 0; height: 0; }
-            .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #555; transition: .2s; border-radius: 16px; }
-            .slider:before { position: absolute; content: ""; height: 12px; width: 12px; left: 2px; bottom: 2px; background-color: white; transition: .2s; border-radius: 50%; }
-            input:checked + .slider { background-color: var(--accent); }
-            input:checked + .slider:before { transform: translateX(14px); }
-            .hidden { display: none; }
-            .btn-primary { 
-              width: 100%;
-              padding: 9px 10px;
-              background: linear-gradient(135deg, var(--btn-bg), var(--accent));
-              color: white;
-              border: none;
-              border-radius: 999px;
-              font-weight: 600;
-              cursor: pointer;
-              transition:
-                background 0.12s ease-out,
-                box-shadow 0.12s ease-out,
-                transform 0.08s ease-out,
-                opacity 0.08s ease-out;
-              box-shadow: 0 12px 28px rgba(0, 0, 0, 0.55);
-            }
-            .btn-primary:hover {
-              background: linear-gradient(
-                135deg,
-                var(--btn-hover),
-                var(--accent)
-              );
-              transform: translateY(-1px);
-              box-shadow: 0 18px 40px rgba(0, 0, 0, 0.7);
-            }
-            .btn-primary:disabled {
-              opacity: 0.55;
-              cursor: default;
-              box-shadow: none;
-              transform: none;
-            }
-            
-            .file-list { margin-bottom: 12px; }
-            .file-item {
+
+            .header-pill {
               display: flex;
               align-items: center;
-              padding: 4px 6px;
-              font-size: 12px;
-              border-radius: 6px;
-              transition: background 0.08s, transform 0.08s;
-              cursor: pointer;
-              position: relative;
+              gap: 6px;
+              background: rgba(255, 255, 255, 0.04);
+              padding: 4px 10px;
+              border-radius: 20px;
+              border: 1px solid var(--glass-border);
             }
-            .file-item:hover {
-              background: rgba(255, 255, 255, 0.05);
-              transform: translateY(-0.5px);
-            }
-            .file-item:hover .file-actions { display: flex; }
-            .status-badge {
-              min-width: 18px;
-              text-align: center;
-              font-weight: 700;
-              font-size: 10px;
-              margin-right: 8px;
-              border-radius: 999px;
-              padding: 1px 6px;
-              border: 1px solid transparent;
-              background: rgba(255, 255, 255, 0.02);
-            }
-            .S-M, .U-M {
-              color: var(--mod-fg);
-              border-color: rgba(226, 192, 141, 0.45);
-              background: rgba(226, 192, 141, 0.1);
-            }
-            .S-A, .U-A {
-              color: var(--add-fg);
-              border-color: rgba(129, 184, 139, 0.5);
-              background: rgba(129, 184, 139, 0.12);
-            }
-            .S-D, .U-D {
-              color: var(--del-fg);
-              border-color: rgba(199, 78, 57, 0.55);
-              background: rgba(199, 78, 57, 0.14);
-            }
-            .S-?, .U-? {
-              color: var(--unt-fg);
-              border-color: rgba(115, 201, 145, 0.5);
-              background: rgba(115, 201, 145, 0.14);
-            }
-            
-            .file-path { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; opacity: 0.8; }
-            .file-actions {
-              display: none;
-              position: absolute;
-              right: 4px;
-              background: rgba(0, 0, 0, 0.7);
-              padding-left: 8px;
-              box-shadow: -10px 0 16px rgba(0, 0, 0, 0.9);
-              border-radius: 6px;
-            }
-            .icon-btn { cursor: pointer; padding: 2px 4px; opacity: 0.6; font-size: 14px; display: flex; align-items: center; justify-content: center; }
-            .icon-btn:hover { opacity: 1; background: rgba(255,255,255,0.1); border-radius: 4px; }
-            
-            .history-item {
-              font-size: 11px;
-              padding: 6px 0;
-              border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-              opacity: 0.8;
-            }
-            .history-item:last-child { border: none; }
-            .history-item code { color: var(--accent); font-weight: bold; }
-            .empty-msg { font-size: 11px; opacity: 0.4; font-style: italic; text-align: center; padding: 8px 0; }
 
-            .push-section { display: flex; align-items: center; justify-content: space-between; margin-top: 12px; }
-            .btn-push { background: transparent; border: 1px solid var(--accent); color: var(--accent); padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 11px; display: flex; align-items: center; gap: 4px; transition: 0.2s; }
-            .btn-push:hover { background: var(--accent); color: white; }
-            
-            .no-repo { text-align: center; padding: 40px 20px; opacity: 0.6; }
-            .no-repo i { font-size: 32px; display: block; margin-bottom: 12px; }
-            .repo-header {
+            .repo-info {
               display: flex;
               align-items: center;
               justify-content: space-between;
-              margin-bottom: 8px;
-              gap: 8px;
+              margin-bottom: 4px;
+              padding: 0 4px;
             }
+
             .repo-path {
-              font-size: 10px;
-              opacity: 0.65;
+              font-size: 11px;
+              color: var(--text-secondary);
               white-space: nowrap;
               overflow: hidden;
               text-overflow: ellipsis;
+              max-width: 60%;
             }
-            .branch-pill {
+
+            .branch-tag {
               font-size: 10px;
-              padding: 2px 6px;
-              border-radius: 999px;
-              border: 1px solid rgba(255, 255, 255, 0.18);
-              background: radial-gradient(
-                circle at 0 0,
-                rgba(255, 255, 255, 0.18),
-                rgba(0, 0, 0, 0.7)
-              );
-              display: inline-flex;
+              font-weight: 600;
+              color: var(--accent);
+              background: var(--accent-glow);
+              padding: 2px 8px;
+              border-radius: 6px;
+              display: flex;
               align-items: center;
               gap: 4px;
-              opacity: 0.9;
             }
-            .branch-pill .codicon {
+
+            textarea, input[type="datetime-local"] { 
+              width: 100%; 
+              box-sizing: border-box; 
+              background: var(--input-bg); 
+              color: var(--text-primary); 
+              border: 1px solid var(--glass-border); 
+              border-radius: 8px; 
+              padding: 10px; 
+              font-family: inherit; 
+              font-size: 13px;
+              transition: var(--transition);
+            }
+
+            textarea:focus, input:focus { 
+              outline: none; 
+              border-color: var(--accent);
+              background: rgba(255, 255, 255, 0.05);
+              box-shadow: 0 0 0 3px var(--accent-glow);
+            }
+
+            textarea { min-height: 80px; resize: none; }
+
+            .btn-group {
+              display: flex;
+              gap: 8px;
+              margin-top: 4px;
+            }
+
+            .btn {
+              cursor: pointer;
+              border: none;
+              border-radius: 8px;
+              padding: 10px 16px;
+              font-weight: 600;
+              font-size: 13px;
+              display: flex;
+              align-items: center;
+              justify-content: center;
+              gap: 8px;
+              transition: var(--transition);
+              font-family: inherit;
+            }
+
+            .btn-primary {
+              background: linear-gradient(135deg, var(--accent), #9A7B1D);
+              color: white;
+              flex: 1;
+              box-shadow: 0 4px 15px rgba(197, 160, 40, 0.3);
+            }
+
+            .btn-primary:hover {
+              transform: translateY(-2px);
+              box-shadow: 0 6px 20px rgba(197, 160, 40, 0.4);
+            }
+
+            .btn-primary:active { transform: translateY(0); }
+
+            .btn-primary:disabled {
+              background: var(--glass-border);
+              color: var(--text-secondary);
+              cursor: not-allowed;
+              transform: none;
+              box-shadow: none;
+            }
+
+            .btn-outline {
+              background: transparent;
+              border: 1px solid var(--accent);
+              color: var(--accent);
+              padding: 8px;
+            }
+
+            .btn-outline:hover {
+              background: var(--accent-glow);
+            }
+
+            .action-icon {
+              cursor: pointer;
+              opacity: 0.6;
+              transition: var(--transition);
+              padding: 4px;
+              border-radius: 4px;
+            }
+
+            .action-icon:hover {
+              opacity: 1;
+              background: rgba(255, 255, 255, 0.1);
+              color: var(--accent);
+            }
+
+            .presets {
+              display: flex;
+              gap: 6px;
+              overflow-x: auto;
+              padding-bottom: 4px;
+              margin-bottom: 12px;
+              scrollbar-width: none;
+            }
+
+            .presets::-webkit-scrollbar { display: none; }
+
+            .preset-chip {
+              white-space: nowrap;
+              background: rgba(255, 255, 255, 0.05);
+              border: 1px solid var(--glass-border);
+              color: var(--text-secondary);
+              padding: 4px 10px;
+              border-radius: 12px;
+              font-size: 11px;
+              cursor: pointer;
+              transition: var(--transition);
+            }
+
+            .preset-chip:hover {
+              background: var(--accent-glow);
+              border-color: var(--accent);
+              color: var(--accent);
+            }
+
+            .switch-container {
+              display: flex;
+              align-items: center;
+              justify-content: space-between;
+              margin-top: 10px;
+              padding: 4px;
+            }
+
+            .switch {
+              position: relative;
+              display: inline-block;
+              width: 34px;
+              height: 18px;
+            }
+
+            .switch input { opacity: 0; width: 0; height: 0; }
+
+            .slider {
+              position: absolute;
+              cursor: pointer;
+              top: 0; left: 0; right: 0; bottom: 0;
+              background-color: rgba(255, 255, 255, 0.1);
+              transition: .4s;
+              border-radius: 18px;
+            }
+
+            .slider:before {
+              position: absolute;
+              content: "";
+              height: 14px; width: 14px;
+              left: 2px; bottom: 2px;
+              background-color: white;
+              transition: .4s;
+              border-radius: 50%;
+            }
+
+            input:checked + .slider { background-color: var(--success); }
+            input:checked + .slider:before { transform: translateX(16px); }
+
+            .file-item {
+              display: flex;
+              align-items: center;
+              padding: 6px 8px;
+              border-radius: 8px;
+              gap: 10px;
+              cursor: pointer;
+              transition: var(--transition);
+            }
+
+            .file-item:hover {
+              background: rgba(255, 255, 255, 0.04);
+            }
+
+            .status-dot {
+              width: 8px;
+              height: 8px;
+              border-radius: 50%;
+              flex-shrink: 0;
+            }
+
+            .S-M, .U-M { background-color: var(--mod-fg); box-shadow: 0 0 8px var(--mod-fg); }
+            .S-A, .U-A { background-color: var(--add-fg); box-shadow: 0 0 8px var(--add-fg); }
+            .S-D, .U-D { background-color: var(--del-fg); box-shadow: 0 0 8px var(--del-fg); }
+            .S-?, .U-? { background-color: var(--unt-fg); box-shadow: 0 0 8px var(--unt-fg); }
+
+            .file-info {
+              flex: 1;
+              min-width: 0;
+            }
+
+            .file-name {
               font-size: 12px;
+              font-weight: 500;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              display: block;
+            }
+
+            .file-actions {
+              display: flex;
+              gap: 4px;
+              opacity: 0;
+              transition: var(--transition);
+            }
+
+            .file-item:hover .file-actions { opacity: 1; }
+
+            .history-item {
+              padding: 8px;
+              border-bottom: 1px solid var(--glass-border);
+              font-size: 11px;
+            }
+
+            .history-item:last-child { border-bottom: none; }
+
+            .history-hash {
+              color: var(--accent);
+              font-weight: 700;
+              font-family: 'JetBrains Mono', monospace;
+              margin-right: 6px;
+            }
+
+            .history-meta {
+              display: block;
+              font-size: 10px;
+              color: var(--text-secondary);
+              margin-top: 2px;
+            }
+
+            .empty-state {
+              text-align: center;
+              padding: 20px 10px;
+              color: var(--text-secondary);
+              font-size: 11px;
+              font-style: italic;
+            }
+
+            .hidden { display: none; }
+
+            .no-repo-view {
+              display: flex;
+              flex-direction: column;
+              align-items: center;
+              justify-content: center;
+              height: 100vh;
+              text-align: center;
+              padding: 24px;
+              gap: 16px;
+            }
+
+            .no-repo-icon {
+              font-size: 48px;
+              color: var(--text-secondary);
+              opacity: 0.3;
             }
           </style>
         </head>
         <body>
-          <div class="surface" id="repo-container">
-            <div class="repo-header">
-              <div class="repo-path" id="currentRepo">No repository selected</div>
-              <div id="branchPill" class="branch-pill hidden">
+          <div id="main-view" class="container">
+            <div class="repo-info">
+              <div class="repo-path" id="currentRepo">Discovering...</div>
+              <div id="branchPill" class="branch-tag hidden">
                 <span class="codicon codicon-git-branch"></span>
                 <span id="currentBranchName"></span>
               </div>
             </div>
-            <div class="card">
-                <div class="section-header" onclick="toggleSection('staged-files')">
-                <div class="section-title-pill">
+
+            <div class="glass-card">
+              <div class="section-header">
+                <div class="header-pill">
                   <h3>Staged Changes</h3>
                 </div>
-                <div class="action-bar">
-                    <span class="icon-btn codicon codicon-remove" title="Unstage All" onclick="event.stopPropagation(); unstageAll()"></span>
+                <span class="action-icon codicon codicon-remove-all" title="Unstage All" onclick="unstageAll()"></span>
+              </div>
+              <div id="staged-files"></div>
+              
+              <div class="section-header" style="margin-top: 16px;">
+                <div class="header-pill">
+                  <h3>Unstaged Changes</h3>
                 </div>
+                <div style="display: flex; gap: 8px;">
+                  <span class="action-icon codicon codicon-discard" title="Discard All" onclick="discardAll()"></span>
+                  <span class="action-icon codicon codicon-add" title="Stage All" onclick="stageAll()"></span>
                 </div>
-                <div id="staged-files" class="file-list"></div>
-
-                <div class="section-header" onclick="toggleSection('unstaged-files')">
-                <div class="section-title-pill">
-                  <h3>Changes</h3>
-                </div>
-                <div class="action-bar">
-                    <span class="icon-btn codicon codicon-discard" title="Discard All" onclick="event.stopPropagation(); discardAll()"></span>
-                    <span class="icon-btn codicon codicon-add" title="Stage All" onclick="event.stopPropagation(); stageAll()"></span>
-                </div>
-                </div>
-                <div id="unstaged-files" class="file-list"></div>
+              </div>
+              <div id="unstaged-files"></div>
             </div>
 
-            <div class="card">
-                <div class="section-title-pill" style="margin-bottom:6px;">
-                  <h3>Commit Message</h3>
-                </div>
-                <textarea id="msg" placeholder="What did you change?"></textarea>
-            </div>
+            <div class="glass-card">
+              <div class="header-pill" style="margin-bottom: 12px; width: fit-content;">
+                <h3>Commit Details</h3>
+              </div>
+              <textarea id="msg" placeholder="Summarize your changes..."></textarea>
+              
+              <div class="presets">
+                <div class="preset-chip" onclick="setPreset(1)">Yesterday</div>
+                <div class="preset-chip" onclick="setPreset(7)">1 week ago</div>
+                <div class="preset-chip" onclick="setPreset(30)">1 month ago</div>
+                <div class="preset-chip" onclick="setPreset(365)">1 year ago</div>
+              </div>
 
-            <div class="card">
-                <div class="section-title-pill" style="margin-bottom:6px;">
-                  <h3>Date & Time</h3>
-                </div>
-                <div class="presets">
-                    <button class="preset-btn" onclick="setPreset(1)">Yesterday</button>
-                    <button class="preset-btn" onclick="setPreset(7)">1 Week Ago</button>
-                    <button class="preset-btn" onclick="setPreset(30)">1 Month Ago</button>
-                </div>
-                
-                <label style="font-size:10px; opacity:0.6;">Author Date</label>
+              <div style="margin-bottom: 8px;">
+                <label style="font-size: 10px; color: var(--text-secondary); margin-left: 4px; display: block; margin-bottom: 4px;">Author Date</label>
                 <input type="datetime-local" id="authorDate" value="${localISOTime}">
-                <div id="committerDateGroup" class="hidden">
-                    <label style="font-size:10px; opacity:0.6;">Committer Date</label>
-                    <input type="datetime-local" id="committerDate" value="${localISOTime}">
-                </div>
-                <div class="toggle-group">
-                    <span style="font-size:11px; opacity:0.8;">Same for Committer?</span>
-                    <label class="switch">
-                        <input type="checkbox" id="syncDate" checked onchange="toggleCommitter()">
-                        <span class="slider"></span>
-                    </label>
-                </div>
+              </div>
+
+              <div id="committerDateGroup" class="hidden" style="margin-bottom: 8px;">
+                <label style="font-size: 10px; color: var(--text-secondary); margin-left: 4px; display: block; margin-bottom: 4px;">Committer Date</label>
+                <input type="datetime-local" id="committerDate" value="${localISOTime}">
+              </div>
+
+              <div class="switch-container">
+                <span style="font-size: 11px; color: var(--text-secondary);">Sync Committer Date</span>
+                <label class="switch">
+                  <input type="checkbox" id="syncDate" checked onchange="toggleCommitter()">
+                  <span class="slider"></span>
+                </label>
+              </div>
             </div>
 
-            <div style="display: flex; gap: 8px;">
-                <button class="btn-primary" id="commitButton" style="flex: 2;" onclick="doCommit()">Backdate Commit</button>
-                <button class="btn-push" title="Push to Remote" onclick="pushToRemote()">
-                <span class="codicon codicon-cloud-upload"></span> Push
-                </button>
+            <div class="btn-group">
+              <button class="btn btn-primary" id="commitButton" onclick="doCommit()">
+                <span class="codicon codicon-check"></span>
+                Backdate Commit
+              </button>
+              <button class="btn btn-outline" title="Push to Remote" onclick="pushToRemote()">
+                <span class="codicon codicon-cloud-upload"></span>
+              </button>
             </div>
 
-            <div class="card" style="margin-top:20px;">
-                <div class="section-header">
-                <div class="section-title-pill">
-                  <h3>Recent History</h3>
+            <div class="glass-card">
+              <div class="section-header">
+                <div class="header-pill">
+                  <h3>Recent Timeline</h3>
                 </div>
-                <span class="icon-btn codicon codicon-refresh" title="Refresh Status" onclick="refreshStatus()"></span>
-                </div>
-                <div id="historyList">Loading history...</div>
+                <span class="action-icon codicon codicon-refresh" title="Refresh" onclick="refreshStatus()"></span>
+              </div>
+              <div id="historyList"></div>
             </div>
           </div>
 
-          <div id="no-repo-container" class="hidden">
-            <div class="no-repo">
-                <i class="codicon codicon-error"></i>
-                <p>No Git repository found in the current context.</p>
-                <p style="font-size:11px;">Open a file from a Git repo or initialize one to get started.</p>
-                <button class="btn-primary" onclick="refreshStatus()" style="margin-top:12px;">Retry Discovery</button>
-            </div>
+          <div id="no-repo-view" class="no-repo-view hidden">
+            <span class="no-repo-icon codicon codicon-source-control"></span>
+            <div style="font-weight: 700; font-size: 16px;">No Repository Found</div>
+            <div style="color: var(--text-secondary); font-size: 12px;">Open a file from a Git repository to enable backdating features.</div>
+            <button class="btn btn-primary" style="margin-top: 8px;" onclick="refreshStatus()">Retry Discovery</button>
           </div>
 
           <script>
@@ -758,11 +893,6 @@ export function activate(context: vscode.ExtensionContext) {
               commitButton.disabled = !msg || !hasChanges;
             }
             
-            function toggleSection(id) {
-              const el = document.getElementById(id);
-              el.style.display = el.style.display === 'none' ? 'block' : 'none';
-            }
-
             function toggleCommitter() {
               const sync = document.getElementById('syncDate').checked;
               document.getElementById('committerDateGroup').classList.toggle('hidden', sync);
@@ -792,7 +922,7 @@ export function activate(context: vscode.ExtensionContext) {
               const authorDate = document.getElementById('authorDate').value.replace('T', ' ') + ':00';
               const sync = document.getElementById('syncDate').checked;
               const committerDate = sync ? authorDate : document.getElementById('committerDate').value.replace('T', ' ') + ':00';
-              if(!msg) { alert('Please enter a commit message'); return; }
+              if(!msg) return;
               vscode.postMessage({ type: 'commit', message: msg, authorDate, committerDate });
               commitMessageInput.value = '';
               updateCommitButtonState(false);
@@ -800,18 +930,18 @@ export function activate(context: vscode.ExtensionContext) {
 
             window.addEventListener('message', event => {
               const data = event.data;
-              const repoContainer = document.getElementById('repo-container');
-              const noRepoContainer = document.getElementById('no-repo-container');
+              const mainView = document.getElementById('main-view');
+              const noRepoView = document.getElementById('no-repo-view');
 
               if (data.type === 'no-repo') {
-                repoContainer.classList.add('hidden');
-                noRepoContainer.classList.remove('hidden');
+                mainView.classList.add('hidden');
+                noRepoView.classList.remove('hidden');
                 return;
               }
 
               if (data.type === 'update') {
-                repoContainer.classList.remove('hidden');
-                noRepoContainer.classList.add('hidden');
+                mainView.classList.remove('hidden');
+                noRepoView.classList.add('hidden');
                 document.getElementById('currentRepo').textContent = data.root;
 
                 const branchPill = document.getElementById('branchPill');
@@ -830,14 +960,23 @@ export function activate(context: vscode.ExtensionContext) {
                 const staged = status.filter(s => s.staged !== ' ' && s.staged !== '?');
                 const unstaged = status.filter(s => s.unstaged !== ' ' || s.staged === '?');
 
-                stagedEl.innerHTML = staged.length ? staged.map(s => renderFileItem(s, true)).join('') : '<div class="empty-msg">Nothing staged</div>';
-                unstagedEl.innerHTML = unstaged.length ? unstaged.map(s => renderFileItem(s, false)).join('') : '<div class="empty-msg">No changes</div>';
+                stagedEl.innerHTML = staged.length ? staged.map(s => renderFileItem(s, true)).join('') : '<div class="empty-state">Nothing staged</div>';
+                unstagedEl.innerHTML = unstaged.length ? unstaged.map(s => renderFileItem(s, false)).join('') : '<div class="empty-state">No changes</div>';
 
                 const histList = document.getElementById('historyList');
                 histList.innerHTML = history.length > 0 ? history.map(h => {
                   const parts = h.split(' - ');
-                  return '<div class="history-item"><code>' + parts[0] + '</code> - ' + parts.slice(1).join(' - ') + '</div>';
-                }).join('') : '<div class="empty-msg">No recent commits</div>';
+                  const hash = parts[0];
+                  const rest = parts.slice(1).join(' - ');
+                  const metaMatch = rest.match(/\\(([^)]+)\\)$/);
+                  const meta = metaMatch ? metaMatch[1] : '';
+                  const msg = metaMatch ? rest.replace(metaMatch[0], '').trim() : rest;
+                  
+                  return '<div class="history-item">' +
+                    '<div><span class="history-hash">' + hash + '</span>' + msg + '</div>' +
+                    '<span class="history-meta">' + meta + '</span>' +
+                  '</div>';
+                }).join('') : '<div class="empty-state">Timeline empty</div>';
 
                 const hasAnyChanges = staged.length > 0 || unstaged.length > 0;
                 updateCommitButtonState(hasAnyChanges);
@@ -845,10 +984,8 @@ export function activate(context: vscode.ExtensionContext) {
             });
 
             commitMessageInput.addEventListener('input', () => {
-              const stagedEls = document.querySelectorAll('#staged-files .file-item');
-              const unstagedEls = document.querySelectorAll('#unstaged-files .file-item');
-              const hasAnyChanges = stagedEls.length > 0 || unstagedEls.length > 0;
-              updateCommitButtonState(hasAnyChanges);
+              const hasChanges = document.querySelectorAll('.file-item').length > 0;
+              updateCommitButtonState(hasChanges);
             });
 
             function renderFileItem(s, isStaged) {
@@ -859,17 +996,19 @@ export function activate(context: vscode.ExtensionContext) {
               let discardBtn = '';
 
               if (isStaged) {
-                actionBtn = '<span class="icon-btn codicon codicon-remove" title="Unstage" onclick="event.stopPropagation(); unstage(\\'' + s.path + '\\')"></span>';
+                actionBtn = '<span class="action-icon codicon codicon-remove" title="Unstage" onclick="event.stopPropagation(); unstage(\\'' + s.path + '\\')"></span>';
               } else {
-                actionBtn = '<span class="icon-btn codicon codicon-add" title="Stage" onclick="event.stopPropagation(); stage(\\'' + s.path + '\\')"></span>';
-                discardBtn = '<span class="icon-btn codicon codicon-discard" title="Discard Changes" onclick="event.stopPropagation(); discard(\\'' + s.path + '\\', \\'' + (s.staged === '?' ? '??' : s.unstaged) + '\\')"></span>';
+                actionBtn = '<span class="action-icon codicon codicon-add" title="Stage" onclick="event.stopPropagation(); stage(\\'' + s.path + '\\')"></span>';
+                discardBtn = '<span class="action-icon codicon codicon-discard" title="Discard" onclick="event.stopPropagation(); discard(\\'' + s.path + '\\', \\'' + (s.staged === '?' ? '??' : s.unstaged) + '\\')"></span>';
               }
 
               return '<div class="file-item" onclick="openFile(\\'' + s.path + '\\')">' +
-                  '<span class="status-badge ' + statusClass + '">' + (statusChar === '?' ? 'U' : statusChar) + '</span>' +
-                  '<span class="file-path">' + s.path + '</span>' +
+                  '<div class="status-dot ' + statusClass + '"></div>' +
+                  '<div class="file-info">' +
+                    '<span class="file-name">' + s.path + '</span>' +
+                  '</div>' +
                   '<div class="file-actions">' +
-                    '<span class="icon-btn codicon codicon-go-to-file" title="Open File" onclick="event.stopPropagation(); openFile(\\'' + s.path + '\\')"></span>' +
+                    '<span class="action-icon codicon codicon-go-to-file" title="Open" onclick="event.stopPropagation(); openFile(\\'' + s.path + '\\')"></span>' +
                     discardBtn +
                     actionBtn +
                   '</div>' +
