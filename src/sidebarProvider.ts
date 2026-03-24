@@ -20,6 +20,7 @@ import { getHtmlForWebview } from "./webviewHtml";
 export class BackdatingGitSidebarProvider implements vscode.WebviewViewProvider {
   private _view?: vscode.WebviewView;
   private _refreshInterval?: any;
+  private _lastValidRoot?: string;
 
   constructor(private readonly _extensionUri: vscode.Uri) {}
 
@@ -174,8 +175,9 @@ export class BackdatingGitSidebarProvider implements vscode.WebviewViewProvider 
 
   private async _refreshAll() {
     if (!this._view) return;
-    const root = await this._getRepoRootForSelection();
+    const root = (await this._getRepoRootForSelection()) || this._lastValidRoot;
     if (root) {
+      this._lastValidRoot = root;
       const branch = await getCurrentBranch(root);
       const history = await getRecentCommits(root);
       const status = await getGitStatus(root);
